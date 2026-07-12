@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Catalogo de cuentas premium, combos digitales y accesos de streaming con stock visible, precios claros y compra directa por WhatsApp."
+    />
+    <title>MAWG Streaming | Cuentas Premium</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#inicio" aria-label="MAWG Streaming inicio">
+        <span class="brand-mark">
+          <img class="brand-mark-logo" src="assets/images/LogoMawg.jpeg" alt="Logo MAWG Streaming" />
+        </span>
+        <span>MAWG Streaming</span>
+      </a>
+      <button class="menu-toggle" type="button" aria-label="Abrir menu" aria-expanded="false">
+        <span></span>
+        <span></span>
+      </button>
+      <nav class="nav-links" aria-label="Navegacion principal">
+        <a href="#catalogo">Catalogo</a>
+        <a href="#beneficios">Beneficios</a>
+        <a href="#planes">Planes</a>
+        <a href="/admin.html">Admin</a>
+        <a class="nav-cta" href="#pedido">Pedir ahora</a>
+      </nav>
+    </header>
+
+    <main id="inicio">
+      <section class="hero">
+        <div class="hero-content">
+          <p class="eyebrow">Catalogo listo para comprar</p>
+          <h1>Cuentas premium con stock visible y compra directa por WhatsApp.</h1>
+          <p class="hero-copy">
+            Cuentas de streaming, accesos premium y combos digitales con precios claros,
+            disponibilidad real y entrega rapida.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#catalogo">Ver productos</a>
+            <a class="button button-secondary" href="#pedido">Comprar ahora</a>
+          </div>
+          <div class="hero-stats" aria-label="Indicadores del catalogo">
+            <div>
+              <strong>48h</strong>
+              <span>reposicion promedio</span>
+            </div>
+            <div>
+              <strong>24/7</strong>
+              <span>atencion por WhatsApp</span>
+            </div>
+            <div>
+              <strong>+35</strong>
+              <span>productos disponibles</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-showcase" aria-label="Vista previa del catalogo">
+          <div class="showcase-toolbar">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="showcase-header">
+            <div>
+              <p>Stock actualizado</p>
+              <h2>Compra directa</h2>
+            </div>
+            <span class="status-pill">Disponible</span>
+          </div>
+          <div class="poster-grid">
+            <article class="poster-card accent-red">
+              <span>Streaming</span>
+              <strong>Netflix Perfil</strong>
+              <small>Entrega inmediata</small>
+            </article>
+            <article class="poster-card accent-blue">
+              <span>Cuenta</span>
+              <strong>Disney Premium</strong>
+              <small>Acceso activo</small>
+            </article>
+            <article class="poster-card accent-green">
+              <span>Combo</span>
+              <strong>Netflix + Disney</strong>
+              <small>Precio especial</small>
+            </article>
+            <article class="poster-card accent-gold">
+              <span>Curso</span>
+              <strong>Ventas Digitales</strong>
+              <small>Acceso digital</small>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section categories" id="catalogo">
+        <div class="section-heading">
+          <p class="eyebrow">Categorias</p>
+          <h2>Explora productos listos para compra en pocos pasos.</h2>
+          <p>
+            Revisa disponibilidad, compara precios y compra sin perder tiempo entre mensajes.
+          </p>
+        </div>
+        <div class="category-grid">
+          <article class="category-card">
+            <div class="card-icon">TV</div>
+            <h3>Cuentas de streaming</h3>
+            <p>Perfiles y cuentas completas para peliculas, series y deportes.</p>
+            <a href="#pedido">Comprar ahora</a>
+          </article>
+          <article class="category-card">
+            <div class="card-icon">ED</div>
+            <h3>Cursos digitales</h3>
+            <p>Accesos educativos, herramientas y capacitaciones con entrega digital.</p>
+            <a href="#pedido">Ver opciones</a>
+          </article>
+          <article class="category-card">
+            <div class="card-icon">PK</div>
+            <h3>Combos especiales</h3>
+            <p>Paquetes con varios servicios agrupados en una sola compra.</p>
+            <a href="#pedido">Cotizar combo</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="section featured">
+        <div class="section-heading compact">
+          <p class="eyebrow">Productos destacados</p>
+          <h2>Opciones listas para comprar.</h2>
+        </div>
+        <div class="product-grid" id="productCatalog" aria-live="polite"></div>
+        <p class="catalog-message storefront-status" id="storefrontStatus" aria-live="polite"></p>
+      </section>
+
+      <section class="section benefits" id="beneficios">
+        <div class="benefit-panel">
+          <div>
+            <p class="eyebrow">Compra rapida</p>
+            <h2>Una experiencia pensada para comprar sin friccion.</h2>
+          </div>
+          <div class="benefit-list">
+            <div>
+              <strong>Catalogo claro</strong>
+              <span>Precios, categorias y disponibilidad visibles desde el primer vistazo.</span>
+            </div>
+            <div>
+              <strong>Pedido directo</strong>
+              <span>El cliente envia su seleccion por WhatsApp y recibe confirmacion rapida.</span>
+            </div>
+            <div>
+              <strong>Soporte continuo</strong>
+              <span>Acompanamiento para activaciones, renovaciones y consultas frecuentes.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section plans" id="planes">
+        <div class="section-heading">
+          <p class="eyebrow">Formas de compra</p>
+          <h2>Elige la opcion que mejor encaje con tu pedido.</h2>
+        </div>
+        <div class="plan-grid">
+          <article class="plan-card">
+            <h3>Compra rapida</h3>
+            <p>Ideal para clientes que quieren validar un producto puntual.</p>
+            <strong>S/ 0</strong>
+            <a class="button button-secondary" href="#pedido">Empezar</a>
+          </article>
+          <article class="plan-card highlighted">
+            <span class="tag">Recomendado</span>
+            <h3>Pedido frecuente</h3>
+            <p>Mejores precios, prioridad de stock y atencion directa.</p>
+            <strong>S/ </strong>
+            <a class="button button-primary" href="#pedido">Comprar ahora</a>
+          </article>
+          <article class="plan-card">
+            <h3>Compra mayorista</h3>
+            <p>Condiciones especiales para pedidos grandes y cuentas en volumen.</p>
+            <strong>A medida</strong>
+            <a class="button button-secondary" href="#pedido">Cotizar</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="section order" id="pedido">
+        <div class="order-card">
+          <div>
+            <p class="eyebrow">Compra por WhatsApp</p>
+            <h2>Arma tu pedido y confirma disponibilidad en minutos.</h2>
+            <p>
+              Envia el producto, cantidad y tipo de acceso que necesitas. Un asesor validara
+              stock, precio final y tiempo de entrega.
+            </p>
+          </div>
+          <a class="button button-primary" href="https://wa.me/51901125483" target="_blank" rel="noreferrer">
+            Comprar por WhatsApp
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>MAWG Streaming Catalogo</span>
+      <span>Catalogo referencial para clientes. Precios sujetos a stock. <a href="/admin.html">Administrar catalogo</a></span>
+    </footer>
+
+    <div class="payment-modal" id="paymentModal" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal></div>
+      <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="paymentTitle">
+        <button class="modal-close" type="button" aria-label="Cerrar modal" data-close-modal>x</button>
+        <div class="modal-heading">
+          <p class="eyebrow">Finalizar compra</p>
+          <h2 id="paymentTitle">Elige como pagar</h2>
+          <p id="selectedProductText">Producto seleccionado</p>
+          <p class="order-reference" id="selectedOrderText" aria-live="polite"></p>
+        </div>
+
+        <div class="payment-tabs" role="tablist" aria-label="Metodos de pago">
+          <button class="payment-tab is-active" type="button" data-method="yape" role="tab" aria-selected="true">
+            Yape
+          </button>
+          <button class="payment-tab" type="button" data-method="plin" role="tab" aria-selected="false">
+            Plin
+          </button>
+          <button class="payment-tab" type="button" data-method="transferencia" role="tab" aria-selected="false">
+            Transferencia
+          </button>
+        </div>
+
+        <div class="payment-panels">
+          <article class="payment-panel is-active" data-panel="yape">
+            <div class="payment-card yape-card">
+              <div>
+                <p class="payment-label">Paga con Yape</p>
+                <h3>Paga con Yape</h3>
+                <p class="payment-help">Escanea el QR o usa el numero visible. Luego adjunta tu comprobante para validarlo.</p>
+              </div>
+              <img class="qr-image" src="assets/images/YapeMawg.jpeg" alt="QR para pagar con Yape" />
+              <div class="payment-detail">
+                <span>Numero</span>
+                <strong data-payment-number>921 217 484</strong>
+              </div>
+              <div class="payment-detail">
+                <span>Titular</span>
+                <strong>Luis Miguel Farro Zapata</strong>
+              </div>
+              <div class="payment-actions">
+                <button class="button button-secondary copy-payment" type="button" data-copy-number="913344874">
+                  Copiar numero
+                </button>
+                <button class="button button-primary whatsapp-proof" type="button">
+                  Enviar comprobante
+                </button>
+              </div>
+              <p class="copy-status" aria-live="polite"></p>
+            </div>
+          </article>
+
+          <article class="payment-panel" data-panel="dale">
+            <div class="payment-card dale-card">
+              <div>
+                <p class="payment-label">Paga con Dale</p>
+                <h3>Transferencia Dale inmediata</h3>
+                <p class="payment-help">Escanea el QR o usa el numero visible. Luego adjunta tu comprobante para validarlo.</p>
+              </div>
+              <img class="qr-image" src="assets/images/DaleMawg.jpeg" alt="QR para pagar con Dale" />
+              <div class="payment-detail">
+                <span>Numero Dale</span>
+                <strong data-payment-number>921 217 484</strong>
+              </div>
+              <div class="payment-detail">
+                <span>Titular</span>
+                <strong>Luis Farro Z</strong>
+              </div>
+              <div class="payment-detail">
+                <span>Moneda</span>
+                <strong>Soles</strong>
+              </div>
+              <div class="payment-actions">
+                <button class="button button-secondary copy-payment" type="button" data-copy-number="988888888">
+                  Copiar numero
+                </button>
+                <button class="button button-primary whatsapp-proof" type="button">
+                  Enviar comprobante
+                </button>
+              </div>
+              <p class="copy-status" aria-live="polite"></p>
+            </div>
+          </article>
+
+          <article class="payment-panel" data-panel="transferencia">
+            <div class="payment-card bank-card">
+              <div>
+                <p class="payment-label">Transferencia bancaria</p>
+                <h3>Datos de cuenta</h3>
+                <p class="payment-help">Realiza la transferencia y envia el comprobante para validar tu pedido.</p>
+              </div>
+              <div class="bank-grid">
+                <div class="payment-detail">
+                  <span>Banco</span>
+                  <strong>BCP</strong>
+                </div>
+                <div class="payment-detail">
+                  <span>Cuenta soles</span>
+                  <strong data-payment-number>191-00000000-0-00</strong>
+                </div>
+                <div class="payment-detail">
+                  <span>CCI</span>
+                  <strong>002-191-000000000000-00</strong>
+                </div>
+                <div class="payment-detail">
+                  <span>Titular</span>
+                  <strong>MAWG Streaming</strong>
+                </div>
+              </div>
+              <div class="payment-actions">
+                <button class="button button-secondary copy-payment" type="button" data-copy-number="19100000000000">
+                  Copiar cuenta
+                </button>
+                <button class="button button-primary whatsapp-proof" type="button">
+                  Enviar comprobante
+                </button>
+              </div>
+              <p class="copy-status" aria-live="polite"></p>
+            </div>
+          </article>
+        </div>
+
+        <form class="proof-form" id="proofForm">
+          <div class="panel-heading compact-heading">
+            <div>
+              <p class="eyebrow">Comprobante</p>
+              <h3>Registrar pago</h3>
+            </div>
+            <span class="status-pill" id="proofStatus">Pendiente</span>
+          </div>
+          <div class="form-grid">
+            <label>
+              Nombre del cliente
+              <input name="cliente_nombre" type="text" placeholder="Nombre y apellido" required />
+            </label>
+            <label>
+              WhatsApp o correo
+              <input name="cliente_contacto" type="text" placeholder="+51 900 000 000" required />
+            </label>
+            <label>
+              Codigo de operacion
+              <input name="comprobante_referencia" type="text" placeholder="Operacion, hora o banco" />
+            </label>
+            <label>
+              Archivo del comprobante
+              <input name="comprobante_archivo" type="file" accept="image/*,.pdf,application/pdf" required />
+            </label>
+            <label class="full-span">
+              Detalle adicional
+              <textarea name="comprobante_notas" rows="3" placeholder="Monto, fecha o comentario para validar"></textarea>
+            </label>
+          </div>
+          <div class="payment-actions">
+            <button class="button button-primary" type="submit">Generar pedido y enviar comprobante</button>
+          </div>
+          <p class="copy-status" id="proofMessage" aria-live="polite"></p>
+        </form>
+      </section>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>

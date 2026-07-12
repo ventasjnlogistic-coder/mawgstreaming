@@ -1,0 +1,323 @@
+[
+  {
+    "evento_id": "AUD-20260707134113-WNUV",
+    "entidad": "compra_proveedor",
+    "entidad_id": "CPR-001",
+    "accion": "cambiar_estado",
+    "estado_anterior": "pagado",
+    "estado_nuevo": "recibido",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "proveedor": "Alex Mayorista",
+      "cantidad": 5,
+      "inventario_generado": 0
+    },
+    "creado_en": "2026-07-07T13:41:13.919Z"
+  },
+  {
+    "evento_id": "AUD-20260707134317-C3SQ",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260706181820-MNR3",
+    "accion": "actualizar",
+    "estado_anterior": "pendiente_revision",
+    "estado_nuevo": "disponible",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Alex Mayorista"
+    },
+    "creado_en": "2026-07-07T13:43:17.276Z"
+  },
+  {
+    "evento_id": "AUD-20260707134322-MDW9",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260706181820-MNR3",
+    "accion": "actualizar",
+    "estado_anterior": "disponible",
+    "estado_nuevo": "disponible",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Alex Mayorista"
+    },
+    "creado_en": "2026-07-07T13:43:22.246Z"
+  },
+  {
+    "evento_id": "AUD-20260707134331-WKNJ",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260706181821-TI3Y",
+    "accion": "actualizar",
+    "estado_anterior": "pendiente_revision",
+    "estado_nuevo": "disponible",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Alex Mayorista"
+    },
+    "creado_en": "2026-07-07T13:43:31.244Z"
+  },
+  {
+    "evento_id": "AUD-20260707140238-IDMW",
+    "entidad": "pedido",
+    "entidad_id": "PED-20260707140236-HL8R",
+    "accion": "crear_venta_manual",
+    "estado_anterior": "",
+    "estado_nuevo": "pagado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "canal_venta": "web",
+      "monto": 15
+    },
+    "creado_en": "2026-07-07T14:02:38.533Z"
+  },
+  {
+    "evento_id": "AUD-20260707140324-VEI7",
+    "entidad": "pedido",
+    "entidad_id": "PED-20260707140236-HL8R",
+    "accion": "entregar",
+    "estado_anterior": "pagado",
+    "estado_nuevo": "entregado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "inventario_id": "INV-20260706181820-MNR3",
+      "asignaciones": 1
+    },
+    "creado_en": "2026-07-07T14:03:24.857Z"
+  },
+  {
+    "evento_id": "AUD-20260707142656-H3T8",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260706181820-MNR3",
+    "accion": "actualizar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Alex Mayorista"
+    },
+    "creado_en": "2026-07-07T14:26:56.082Z"
+  },
+  {
+    "evento_id": "AUD-20260707142706-3D8M",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260706181820-MNR3",
+    "accion": "renovar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "vencimiento_anterior": "2026-08-07T05:00:00.000Z",
+      "vencimiento_nuevo": "2026-07-13"
+    },
+    "creado_en": "2026-07-07T14:27:06.438Z"
+  },
+  {
+    "evento_id": "AUD-20260707151546-JZM1",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260706181820-MNR3",
+    "accion": "liberar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "disponible",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "pedido_id": "PED-20260707140236-HL8R"
+    },
+    "creado_en": "2026-07-07T15:15:46.472Z"
+  },
+  {
+    "evento_id": "AUD-20260711200534-84GZ",
+    "entidad": "plantilla",
+    "entidad_id": "entrega",
+    "accion": "actualizar_plantilla",
+    "estado_anterior": "",
+    "estado_nuevo": "activo",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "nombre": "Entrega"
+    },
+    "creado_en": "2026-07-11T20:05:34.194Z"
+  },
+  {
+    "evento_id": "AUD-20260711200827-0SZ8",
+    "entidad": "pedido",
+    "entidad_id": "PED-20260711200818-UULV",
+    "accion": "crear_venta_manual",
+    "estado_anterior": "",
+    "estado_nuevo": "pagado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "canal_venta": "manual",
+      "monto": 15,
+      "comprobante": ""
+    },
+    "creado_en": "2026-07-11T20:08:27.547Z"
+  },
+  {
+    "evento_id": "AUD-20260711200912-D93L",
+    "entidad": "pedido",
+    "entidad_id": "PED-20260711200818-UULV",
+    "accion": "entregar",
+    "estado_anterior": "pagado",
+    "estado_nuevo": "entregado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "inventario_id": "INV-Netflex-001",
+      "asignaciones": 1
+    },
+    "creado_en": "2026-07-11T20:09:12.252Z"
+  },
+  {
+    "evento_id": "AUD-20260711215753-WJSP",
+    "entidad": "inventario",
+    "entidad_id": "INV-Netflex-001",
+    "accion": "actualizar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Lokuratv"
+    },
+    "creado_en": "2026-07-11T21:57:53.933Z"
+  },
+  {
+    "evento_id": "AUD-20260711215817-MYWZ",
+    "entidad": "renovacion",
+    "entidad_id": "REN-20260711215815-CFE1",
+    "accion": "crear",
+    "estado_anterior": "",
+    "estado_nuevo": "pendiente_aviso",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "inventario_id": "INV-Netflex-001",
+      "monto": 15
+    },
+    "creado_en": "2026-07-11T21:58:17.805Z"
+  },
+  {
+    "evento_id": "AUD-20260711215908-H5JO",
+    "entidad": "renovacion",
+    "entidad_id": "REN-20260711215815-CFE1",
+    "accion": "confirmar",
+    "estado_anterior": "pendiente_aviso",
+    "estado_nuevo": "renovado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "inventario_id": "INV-Netflex-001",
+      "vencimiento_nuevo": "2026-07-16"
+    },
+    "creado_en": "2026-07-11T21:59:08.456Z"
+  },
+  {
+    "evento_id": "AUD-20260711220111-QZP9",
+    "entidad": "inventario",
+    "entidad_id": "INV-Netflex-001",
+    "accion": "actualizar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Lokuratv"
+    },
+    "creado_en": "2026-07-11T22:01:11.397Z"
+  },
+  {
+    "evento_id": "AUD-20260711221546-XPUR",
+    "entidad": "inventario",
+    "entidad_id": "INV-Netflex-001",
+    "accion": "renovar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "vencimiento_anterior": "2026-07-23T05:00:00.000Z",
+      "vencimiento_nuevo": "2026-07-23"
+    },
+    "creado_en": "2026-07-11T22:15:46.101Z"
+  },
+  {
+    "evento_id": "AUD-20260711221546-COBZ",
+    "entidad": "inventario",
+    "entidad_id": "INV-Netflex-001",
+    "accion": "actualizar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Lokuratv"
+    },
+    "creado_en": "2026-07-11T22:15:46.414Z"
+  },
+  {
+    "evento_id": "AUD-20260711223032-8URC",
+    "entidad": "pedido",
+    "entidad_id": "PED-20260711223025-TUB1",
+    "accion": "crear_venta_manual",
+    "estado_anterior": "",
+    "estado_nuevo": "pagado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "canal_venta": "whatsapp",
+      "monto": 15,
+      "comprobante": "WhatsApp Image 2026-06-04 at 8.41.34 PM.jpeg"
+    },
+    "creado_en": "2026-07-11T22:30:32.967Z"
+  },
+  {
+    "evento_id": "AUD-20260711223101-I43T",
+    "entidad": "pedido",
+    "entidad_id": "PED-20260711223025-TUB1",
+    "accion": "entregar",
+    "estado_anterior": "pagado",
+    "estado_nuevo": "entregado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "inventario_id": "INV-20260706181820-MNR3",
+      "asignaciones": 1
+    },
+    "creado_en": "2026-07-11T22:31:01.936Z"
+  },
+  {
+    "evento_id": "AUD-20260711230841-19F2",
+    "entidad": "pedido",
+    "entidad_id": "PED-20260711230833-2IN4",
+    "accion": "crear_venta_manual",
+    "estado_anterior": "",
+    "estado_nuevo": "pagado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Disney Premium Perfil",
+      "canal_venta": "manual",
+      "monto": 10,
+      "comprobante": "COT-20260701233448_CLARO FIBRA_20260701.pdf"
+    },
+    "creado_en": "2026-07-11T23:08:41.451Z"
+  }
+]

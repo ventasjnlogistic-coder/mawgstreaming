@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Ingreso privado al panel de catalogo MAWG Streaming." />
+    <title>Ingreso Admin | MAWG Streaming</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="admin-page login-page">
+    <main class="login-shell">
+      <section class="admin-panel login-panel" aria-labelledby="loginTitle">
+        <a class="brand login-brand" href="/" aria-label="Volver al catalogo MAWG Streaming">
+          <span class="brand-mark">S</span>
+          <span>MAWG Streaming Admin</span>
+        </a>
+        <div class="modal-heading login-heading">
+          <div class="login-heading-copy">
+            <p class="eyebrow">Acceso privado</p>
+            <h1 id="loginTitle">Iniciar sesion</h1>
+            <p>Ingresa con las credenciales configuradas para administrar el catalogo.</p>
+          </div>
+          <a class="login-logo-link" href="/" aria-label="Volver al catalogo MAWG Streaming">
+            <img class="login-logo" src="assets/images/LogoMawg.jpeg" alt="Logo MAWG Streaming" />
+          </a>
+        </div>
+
+        <form class="product-form login-form" id="loginForm">
+          <label>
+            Usuario
+            <input name="usuario" type="text" autocomplete="username" required />
+          </label>
+          <label>
+            Contrasena
+            <input name="password" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="button button-primary" type="submit">Entrar al panel</button>
+          <p class="copy-status" id="loginStatus" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+
+    <script src="login.js"></script>
+  </body>
+</html>

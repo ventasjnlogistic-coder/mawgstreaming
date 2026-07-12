@@ -1,0 +1,92 @@
+[
+  {
+    "id": "perfil-cine-familiar",
+    "nombre": "Perfil Cine Familiar",
+    "tipo": "Perfil",
+    "precio": 10,
+    "descripcion": "Acceso mensual para contenido familiar, peliculas y estrenos seleccionados.",
+    "imagen": "",
+    "estado": "disponible",
+    "categoria": "Cuentas de streaming",
+    "badge": "Mas vendido",
+    "cta": "Comprar",
+    "plantilla_entrega": ":estrella: *MAWG Streaming te da la bienvenida*\n\n:tv: *Producto:* {{producto_nombre}}\n\n:correo: *Correo:* {{cuenta_usuario}}\n:llave: *Clave:* {{cuenta_clave}}\n\n:perfil: *Perfil:* {{perfil_nombre}}\n:candado: *PIN:* {{pin}}\n:calendario: *Fecha de renovacion:* {{fecha_vencimiento_cliente}}\n\n:alerta: *IMPORTANTE:*\n- Usar solo en un dispositivo.\n- No cambiar la clave ni el metodo de facturacion.\n- Si no cumple, la garantia expirara sin reclamo.\n\nGracias :check:"
+  },
+  {
+    "id": "cuenta-series-global",
+    "nombre": "Cuenta Series Global",
+    "tipo": "Cuenta completa",
+    "precio": 37,
+    "descripcion": "Cuenta completa con renovacion mensual y soporte de activacion.",
+    "imagen": "",
+    "estado": "disponible",
+    "categoria": "Cuentas de streaming",
+    "badge": "Stock alto",
+    "cta": "Comprar",
+    "plantilla_entrega": ":estrella: *MAWG Streaming te da la bienvenida*\n\n:tv: *Producto:* {{producto_nombre}}\n\n:correo: *Correo:* {{cuenta_usuario}}\n:llave: *Clave:* {{cuenta_clave}}\n\n:perfil: *Perfil:* {{perfil_nombre}}\n:candado: *PIN:* {{pin}}\n:calendario: *Fecha de renovacion:* {{fecha_vencimiento_cliente}}\n\n:alerta: *IMPORTANTE:*\n- Usar solo en un dispositivo.\n- No cambiar la clave ni el metodo de facturacion.\n- Si no cumple, la garantia expirara sin reclamo.\n\nGracias :check:"
+  },
+  {
+    "id": "curso-ventas-digitales",
+    "nombre": "Curso Ventas Digitales",
+    "tipo": "Curso digital",
+    "precio": 18,
+    "descripcion": "Material practico para mejorar publicaciones, cierres y atencion al cliente.",
+    "imagen": "",
+    "estado": "disponible",
+    "categoria": "Cursos digitales",
+    "badge": "Nuevo",
+    "cta": "Comprar",
+    "plantilla_entrega": ":estrella: *MAWG Streaming te da la bienvenida*\n\n:tv: *Producto:* {{producto_nombre}}\n\n:correo: *Correo:* {{cuenta_usuario}}\n:llave: *Clave:* {{cuenta_clave}}\n\n:perfil: *Perfil:* {{perfil_nombre}}\n:candado: *PIN:* {{pin}}\n:calendario: *Fecha de renovacion:* {{fecha_vencimiento_cliente}}\n\n:alerta: *IMPORTANTE:*\n- Usar solo en un dispositivo.\n- No cambiar la clave ni el metodo de facturacion.\n- Si no cumple, la garantia expirara sin reclamo.\n\nGracias :check:"
+  },
+  {
+    "id": "combo-emprendedor",
+    "nombre": "Combo Emprendedor",
+    "tipo": "Combo",
+    "precio": 45,
+    "descripcion": "Tres accesos digitales con margen preferencial para socios activos.",
+    "imagen": "",
+    "estado": "disponible",
+    "categoria": "Combos para socios",
+    "badge": "Pack",
+    "cta": "Comprar",
+    "componentes": [
+      {
+        "id": "netflix-premium",
+        "nombre": "Netflix Premium",
+        "producto_id": "netflix-premium"
+      },
+      {
+        "id": "Disney_Premiun",
+        "nombre": "Disney Premiun",
+        "producto_id": "Disney_Premiun"
+      }
+    ],
+    "plantilla_entrega": ":estrella: *MAWG Streaming te da la bienvenida*\n\n:tv: *Producto:* {{producto_nombre}}\n\n:correo: *Correo:* {{cuenta_usuario}}\n:llave: *Clave:* {{cuenta_clave}}\n\n:perfil: *Perfil:* {{perfil_nombre}}\n:candado: *PIN:* {{pin}}\n:calendario: *Fecha de renovacion:* {{fecha_vencimiento_cliente}}\n\n:alerta: *IMPORTANTE:*\n- Usar solo en un dispositivo.\n- No cambiar la clave ni el metodo de facturacion.\n- Si no cumple, la garantia expirara sin reclamo.\n\nGracias :check:"
+  },
+  {
+    "id": "netflix-premium",
+    "nombre": "Netflix Premium",
+    "tipo": "Perfil",
+    "precio": 12,
+    "descripcion": "Acceso mensual a series y peliculas en HD.",
+    "imagen": "assets/images/Netflix.jpg",
+    "estado": "disponible",
+    "categoria": "Streaming",
+    "badge": "Nuevo",
+    "cta": "Comprar",
+    "plantilla_entrega": ":estrella: *MAWG Streaming te da la bienvenida*\n\n:tv: *Producto:* {{producto_nombre}}\n\n:correo: *Correo:* {{cuenta_usuario}}\n:llave: *Clave:* {{cuenta_clave}}\n\n:perfil: *Perfil:* {{perfil_nombre}}\n:candado: *PIN:* {{pin}}\n:calendario: *Fecha de renovacion:* {{fecha_vencimiento_cliente}}\n\n:alerta: *IMPORTANTE:*\n- Usar solo en un dispositivo.\n- No cambiar la clave ni el metodo de facturacion.\n- Si no cumple, la garantia expirara sin reclamo.\n\nGracias :check:"
+  },
+  {
+    "id": "Disney_Premiun",
+    "nombre": "Disney Premiun",
+    "tipo": "Completa",
+    "precio": 25,
+    "descripcion": "lo mejor",
+    "imagen": "assets/images/DisneyPre.jpg",
+    "estado": "disponible",
+    "categoria": "streaming",
+    "badge": "Nuevo",
+    "cta": "Comprar",
+    "plantilla_entrega": ":estrella: *MAWG Streaming te da la bienvenida*\n\n:tv: *Producto:* {{producto_nombre}}\n\n:correo: *Correo:* {{cuenta_usuario}}\n:llave: *Clave:* {{cuenta_clave}}\n\n:perfil: *Perfil:* {{perfil_nombre}}\n:candado: *PIN:* {{pin}}\n:calendario: *Fecha de renovacion:* {{fecha_vencimiento_cliente}}\n\n:alerta: *IMPORTANTE:*\n- Usar solo en un dispositivo.\n- No cambiar la clave ni el metodo de facturacion.\n- Si no cumple, la garantia expirara sin reclamo.\n\nGracias :check:"
+  }
+]

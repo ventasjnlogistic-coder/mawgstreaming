@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Panel visual para administrar el catalogo dinamico de MAWG Streaming."
+    />
+    <title>Admin Catalogo | MAWG Streaming</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="admin-page">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Volver al catalogo MAWG Streaming">
+        <span class="brand-mark">S</span>
+        <span>MAWG Streaming Admin</span>
+      </a>
+      <nav class="nav-links admin-nav" aria-label="Navegacion de administracion">
+        <a href="/">Ver tienda</a>
+        <a href="#dashboard" data-admin-target="dashboard">Dashboard</a>
+        <a href="#reportes" data-admin-target="reportes">Reportes</a>
+        <a href="#compras" data-admin-target="compras">Compras</a>
+        <a href="#productos" data-admin-target="productos">Productos</a>
+        <a href="#inventario" data-admin-target="inventario">Inventario</a>
+        <a href="#proveedores" data-admin-target="proveedores">Proveedores</a>
+        <a href="#renovaciones" data-admin-target="renovaciones">Renovaciones</a>
+        <a href="#plantillas" data-admin-target="plantillas">Plantillas</a>
+        <a href="#auditoria" data-admin-target="auditoria">Auditoria</a>
+        <a href="#exportar" data-admin-target="exportar">Exportar</a>
+        <button class="nav-logout" type="button" id="logoutButton">Cerrar sesion</button>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <section class="admin-hero">
+        <div>
+          <p class="eyebrow">Panel operativo</p>
+          <h1 id="adminViewTitle">Compras</h1>
+          <p id="adminViewDescription">
+            Revisa comprobantes, confirma pagos y entrega cuentas disponibles segun la compra del cliente.
+          </p>
+        </div>
+        <div class="admin-actions">
+          <span class="status-pill is-muted" id="sessionUserBadge">Sesion activa</span>
+          <button class="button button-primary" type="button" id="loadDashboardButton" data-admin-action="dashboard">
+            Recargar dashboard
+          </button>
+          <button class="button button-primary" type="button" id="loadReportsButton" data-admin-action="reportes">
+            Recargar reportes
+          </button>
+          <button class="button button-primary" type="button" id="loadCatalogButton" data-admin-action="productos">
+            Recargar catalogo
+          </button>
+          <button class="button button-secondary" type="button" id="newProductButton" data-admin-action="productos">
+            Nuevo producto
+          </button>
+          <button class="button button-primary" type="button" id="loadOrdersButton" data-admin-action="compras">
+            Recargar pedidos
+          </button>
+          <button class="button button-primary" type="button" id="loadInventoryButton" data-admin-action="inventario">
+            Recargar inventario
+          </button>
+          <button class="button button-primary" type="button" id="loadSuppliersButton" data-admin-action="proveedores">
+            Recargar proveedores
+          </button>
+          <button class="button button-primary" type="button" id="loadRenewalsButton" data-admin-action="renovaciones">
+            Recargar renovaciones
+          </button>
+          <button class="button button-primary" type="button" id="loadTemplatesButton" data-admin-action="plantillas">
+            Recargar plantillas
+          </button>
+          <button class="button button-primary" type="button" id="loadAuditButton" data-admin-action="auditoria">
+            Recargar auditoria
+          </button>
+        </div>
+      </section>
+
+      <section class="admin-view dashboard-view" id="dashboard" data-admin-view="dashboard">
+        <section class="admin-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Resumen</p>
+              <h2>Operacion de hoy</h2>
+            </div>
+            <span class="status-pill is-muted" id="dashboardUpdated">Cargando</span>
+          </div>
+          <div class="dashboard-grid" id="dashboardSummary"></div>
+        </section>
+
+        <section class="dashboard-columns">
+          <div class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Atencion</p>
+                <h2>Prioridades</h2>
+              </div>
+            </div>
+            <div class="dashboard-list" id="dashboardPriorityList"></div>
+          </div>
+
+          <div class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Stock</p>
+                <h2>Disponibles por producto</h2>
+              </div>
+            </div>
+            <div class="dashboard-list" id="dashboardStockList"></div>
+          </div>
+
+          <div class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Alertas</p>
+                <h2>Riesgos operativos</h2>
+              </div>
+            </div>
+            <div class="dashboard-list" id="dashboardAlertsList"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="admin-view dashboard-view" id="reportes" data-admin-view="reportes" hidden>
+        <section class="admin-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Ganancia</p>
+              <h2>Resumen financiero</h2>
+            </div>
+            <span class="status-pill is-muted" id="reportsUpdated">Cargando</span>
+          </div>
+          <div class="inventory-filters report-filters">
+            <select id="reportPeriodFilter" aria-label="Periodo del reporte">
+              <option value="current-month">Mes actual</option>
+              <option value="last-month">Mes anterior</option>
+              <option value="all">Todo el historial</option>
+              <option value="custom">Rango personalizado</option>
+            </select>
+            <input id="reportStartDate" type="date" aria-label="Fecha inicio" />
+            <input id="reportEndDate" type="date" aria-label="Fecha fin" />
+            <select id="reportProviderFilter" aria-label="Proveedor del reporte">
+              <option value="">Todos los proveedores</option>
+            </select>
+            <select id="reportChannelFilter" aria-label="Canal del reporte">
+              <option value="">Todos los canales</option>
+            </select>
+            <button class="button button-secondary compact-button" type="button" id="clearReportFiltersButton">
+              Limpiar
+            </button>
+          </div>
+          <div class="dashboard-grid" id="reportsSummary"></div>
+        </section>
+
+        <section class="reports-grid">
+          <div class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Productos</p>
+                <h2>Margen por producto</h2>
+              </div>
+            </div>
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Ventas</th>
+                    <th>Ingresos</th>
+                    <th>Costos</th>
+                    <th>Margen</th>
+                  </tr>
+                </thead>
+                <tbody id="reportProductRows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Canales</p>
+                <h2>Margen por canal</h2>
+              </div>
+            </div>
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Canal</th>
+                    <th>Ventas</th>
+                    <th>Ingresos</th>
+                    <th>Margen</th>
+                  </tr>
+                </thead>
+                <tbody id="reportChannelRows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Proveedores</p>
+                <h2>Margen por proveedor</h2>
+              </div>
+            </div>
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Proveedor</th>
+                    <th>Cuentas</th>
+                    <th>Ingresos</th>
+                    <th>Costos</th>
+                    <th>Margen</th>
+                  </tr>
+                </thead>
+                <tbody id="reportProviderRows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Renovaciones</p>
+                <h2>Cobros renovados</h2>
+              </div>
+            </div>
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Renovaciones</th>
+                    <th>Ingresos</th>
+                    <th>Margen est.</th>
+                  </tr>
+                </thead>
+                <tbody id="reportRenewalRows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Inventario</p>
+                <h2>Stock no vendido</h2>
+              </div>
+            </div>
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Cuentas</th>
+                    <th>Venta pot.</th>
+                    <th>Costo</th>
+                    <th>Margen pot.</th>
+                  </tr>
+                </thead>
+                <tbody id="reportInventoryRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="admin-panel orders-panel admin-view" id="compras" data-admin-view="compras">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Compras</p>
+            <h2>Seguimiento de pedidos</h2>
+          </div>
+          <span class="status-pill" id="orderCount">0 pedidos</span>
+        </div>
+        <details class="manual-sale-panel">
+          <summary>Nueva venta manual</summary>
+          <form class="product-form" id="manualSaleForm" enctype="multipart/form-data">
+            <div class="form-grid">
+              <label>
+                Producto
+                <select name="producto_id" id="manualSaleProductSelect" required>
+                  <option value="">Selecciona producto</option>
+                </select>
+              </label>
+              <label>
+                Precio vendido
+                <input name="producto_precio" type="number" min="0" step="0.01" placeholder="Monto cobrado" />
+              </label>
+              <label>
+                Cliente
+                <input name="cliente_nombre" type="text" required placeholder="Nombre del cliente" />
+              </label>
+              <label>
+                Contacto
+                <input name="cliente_contacto" type="text" required placeholder="WhatsApp o correo" />
+              </label>
+              <label>
+                Metodo pago
+                <select name="metodo_pago" id="manualSalePaymentMethodSelect">
+                  <option value="">Selecciona metodo</option>
+                </select>
+              </label>
+              <label>
+                Referencia pago
+                <input name="comprobante_referencia" type="text" placeholder="Operacion o codigo" />
+              </label>
+              <label>
+                Canal
+                <select name="canal_venta">
+                  <option value="manual">Manual</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="referido">Referido</option>
+                  <option value="redes">Redes</option>
+                </select>
+              </label>
+              <label>
+                Estado inicial
+                <select name="estado">
+                  <option value="pagado">Pagado</option>
+                  <option value="comprobante recibido">Comprobante recibido</option>
+                  <option value="pendiente de pago">Pendiente de pago</option>
+                </select>
+              </label>
+              <label>
+                Comprobante
+                <input name="comprobante_archivo" type="file" accept="image/*,.pdf,application/pdf" />
+              </label>
+              <label class="form-wide">
+                Notas
+                <textarea name="comprobante_notas" rows="3" placeholder="Detalle de venta manual"></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="button button-primary" type="submit">Crear venta manual</button>
+            </div>
+          </form>
+        </details>
+        <div class="inventory-filters order-filters">
+          <input type="search" id="searchOrders" placeholder="Buscar pedido, cliente, producto o comprobante" />
+          <select id="orderStatusFilter">
+            <option value="">Todos los estados</option>
+            <option value="pendiente de pago">Pendiente de pago</option>
+            <option value="comprobante recibido">Comprobante recibido</option>
+            <option value="pagado">Pagado</option>
+            <option value="entregado">Entregado</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+          <select id="orderChannelFilter">
+            <option value="">Todos los canales</option>
+          </select>
+          <input type="date" id="orderStartDate" aria-label="Fecha inicio pedidos" />
+          <input type="date" id="orderEndDate" aria-label="Fecha fin pedidos" />
+          <button class="button button-secondary compact-button" type="button" id="clearOrderFiltersButton">
+            Limpiar
+          </button>
+        </div>
+        <div class="admin-product-list order-list" id="adminOrderList"></div>
+      </section>
+
+      <section class="admin-layout admin-view" id="productos" data-admin-view="productos" hidden>
+        <aside class="admin-panel product-list-panel" aria-label="Lista de productos">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Productos</p>
+              <h2>Catalogo</h2>
+            </div>
+            <span class="status-pill" id="productCount">0 items</span>
+          </div>
+          <div class="admin-search">
+            <input type="search" id="searchProducts" placeholder="Buscar por nombre, tipo o categoria" />
+          </div>
+          <div class="admin-product-list" id="adminProductList"></div>
+        </aside>
+
+        <section class="admin-panel editor-panel" aria-labelledby="formTitle">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Formulario</p>
+              <h2 id="formTitle">Nuevo producto</h2>
+            </div>
+            <span class="status-pill" id="dirtyState">Sin cambios</span>
+          </div>
+
+          <form class="product-form" id="productForm">
+            <div class="form-grid">
+              <label>
+                ID
+                <input name="id" type="text" placeholder="netflix-premium" required />
+              </label>
+              <label>
+                Nombre
+                <input name="nombre" type="text" placeholder="Netflix Premium" required />
+              </label>
+              <label>
+                Tipo
+                <input name="tipo" type="text" placeholder="Perfil" />
+              </label>
+              <label>
+                Precio
+                <input name="precio" type="number" min="0" step="0.01" placeholder="12" />
+              </label>
+              <label>
+                Estado
+                <select name="estado">
+                  <option value="disponible">Disponible</option>
+                  <option value="agotado">Agotado</option>
+                </select>
+              </label>
+              <label>
+                Vender sin stock
+                <select name="vender">
+                  <option value="no">No</option>
+                  <option value="si">Si</option>
+                </select>
+              </label>
+              <label>
+                Categoria
+                <input name="categoria" type="text" placeholder="Streaming" />
+              </label>
+              <label>
+                Badge
+                <input name="badge" type="text" placeholder="Nuevo" />
+              </label>
+              <label>
+                CTA
+                <input name="cta" type="text" placeholder="Comprar" />
+              </label>
+              <label class="form-wide">
+                Imagen
+                <input name="imagen" type="text" placeholder="Pega una URL de Drive o assets/images/Netflix.jpg" />
+              </label>
+              <label class="form-wide">
+                Descripcion
+                <textarea name="descripcion" rows="4" placeholder="Descripcion breve para la tarjeta"></textarea>
+              </label>
+              <label class="form-wide">
+                Plantilla de entrega
+                <textarea name="plantilla_entrega" rows="8" placeholder=":estrella: *MAWG Streaming te da la bienvenida*&#10;&#10;:tv: *Producto:* {{producto_nombre}}&#10;&#10;:correo: *Correo:* {{cuenta_usuario}}&#10;:llave: *Clave:* {{cuenta_clave}}&#10;&#10;:perfil: *Perfil:* {{perfil_nombre}}&#10;:candado: *PIN:* {{pin}}&#10;:calendario: *Fecha de renovacion:* {{fecha_vencimiento_cliente}}&#10;&#10;:alerta: *IMPORTANTE:*&#10;- Usar solo en un dispositivo.&#10;- No cambiar la clave ni el metodo de facturacion.&#10;- Si no cumple, la garantia expirara sin reclamo."></textarea>
+              </label>
+              <label class="form-wide">
+                Componentes del combo
+                <textarea name="componentes" rows="3" placeholder="netflix-premium | Netflix&#10;Disney_Premiun | Disney Premiun"></textarea>
+              </label>
+            </div>
+
+            <div class="form-actions">
+              <button class="button button-primary" type="submit" id="saveProductButton">
+                Guardar producto
+              </button>
+              <button class="button button-secondary" type="button" id="duplicateProductButton">
+                Duplicar
+              </button>
+              <button class="button button-danger" type="button" id="deleteProductButton">
+                Eliminar
+              </button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <section class="admin-layout admin-view" id="proveedores" data-admin-view="proveedores" hidden>
+        <aside class="admin-panel product-list-panel" aria-label="Proveedores">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Proveedores</p>
+              <h2>Contactos</h2>
+            </div>
+            <span class="status-pill" id="providerCount">0 proveedores</span>
+          </div>
+          <div class="admin-search">
+            <input type="search" id="searchProviders" placeholder="Buscar proveedor, contacto o producto" />
+          </div>
+          <div class="admin-product-list" id="adminProviderList"></div>
+        </aside>
+
+        <section class="admin-panel editor-panel" aria-labelledby="providerFormTitle">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Mantenimiento</p>
+              <h2 id="providerFormTitle">Nuevo proveedor</h2>
+            </div>
+            <button class="button button-secondary compact-button" type="button" id="newProviderButton">
+              Nuevo proveedor
+            </button>
+          </div>
+
+          <form class="product-form" id="providerForm">
+            <div class="form-grid">
+              <label>
+                ID proveedor
+                <input name="proveedor_id" type="text" placeholder="PROV-001" />
+              </label>
+              <label>
+                Nombre
+                <input name="nombre" type="text" placeholder="Proveedor mayorista" required />
+              </label>
+              <label>
+                Contacto
+                <input name="contacto" type="text" placeholder="WhatsApp, correo o enlace" />
+              </label>
+              <label>
+                Producto principal
+                <input name="producto_principal" type="text" placeholder="Netflix, Disney, combos" />
+              </label>
+              <label>
+                Costo referencial
+                <input name="costo_referencial" type="number" min="0" step="0.01" placeholder="8" />
+              </label>
+              <label>
+                Estado
+                <select name="estado">
+                  <option value="activo">Activo</option>
+                  <option value="observado">Observado</option>
+                  <option value="inactivo">Inactivo</option>
+                </select>
+              </label>
+              <label class="form-wide">
+                Notas
+                <textarea name="notas" rows="3" placeholder="Condiciones, horarios, calidad, incidencias"></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="button button-primary" type="submit">Guardar proveedor</button>
+            </div>
+          </form>
+
+          <div class="panel-heading compact-section-heading">
+            <div>
+              <p class="eyebrow">ComprasProveedor</p>
+              <h2 id="providerPurchaseFormTitle">Nueva compra</h2>
+            </div>
+            <span class="status-pill is-muted" id="providerPurchaseCount">0 compras</span>
+            <button class="button button-secondary compact-button" type="button" id="newProviderPurchaseButton">
+              Nueva compra
+            </button>
+          </div>
+
+          <form class="product-form" id="providerPurchaseForm">
+            <div class="form-grid">
+              <label>
+                ID compra
+                <input name="compra_id" type="text" placeholder="CPR-001" />
+              </label>
+              <label>
+                Proveedor
+                <select name="proveedor_id" id="providerPurchaseProviderSelect">
+                  <option value="">Proveedor no vinculado</option>
+                </select>
+              </label>
+              <label>
+                Nombre proveedor
+                <input name="proveedor_nombre" type="text" placeholder="Proveedor mayorista" />
+              </label>
+              <label>
+                Producto
+                <select name="producto_id" id="providerPurchaseProductSelect">
+                  <option value="">Producto no vinculado</option>
+                </select>
+              </label>
+              <label>
+                Nombre producto
+                <input name="producto_nombre" type="text" placeholder="Netflix Premium" />
+              </label>
+              <label>
+                Cantidad
+                <input name="cantidad" type="number" min="0" step="1" placeholder="10" />
+              </label>
+              <label>
+                Costo total
+                <input name="costo_total" type="number" min="0" step="0.01" placeholder="80" />
+              </label>
+              <label>
+                Costo unitario
+                <input name="costo_unitario" type="number" min="0" step="0.01" placeholder="8" />
+              </label>
+              <label>
+                Usuario / correo
+                <input name="cuenta_usuario" type="text" placeholder="correo enviado por proveedor" />
+              </label>
+              <label>
+                Clave
+                <input name="cuenta_clave" type="text" autocomplete="off" placeholder="clave enviada por proveedor" />
+              </label>
+              <label>
+                Metodo pago
+                <input name="metodo_pago" type="text" placeholder="Yape, Plin, transferencia" />
+              </label>
+              <label>
+                Referencia pago
+                <input name="referencia_pago" type="text" placeholder="Operacion o comprobante" />
+              </label>
+              <label>
+                Fecha compra
+                <input name="fecha_compra" type="date" />
+              </label>
+              <label>
+                Vence proveedor
+                <input name="fecha_vencimiento_proveedor" type="date" />
+              </label>
+              <label>
+                Estado
+                <select name="estado">
+                  <option value="pendiente">Pendiente</option>
+                  <option value="pagado">Pagado</option>
+                  <option value="recibido">Recibido</option>
+                  <option value="parcial">Parcial</option>
+                  <option value="cancelado">Cancelado</option>
+                </select>
+              </label>
+              <label class="form-wide">
+                Notas
+                <textarea name="notas" rows="3" placeholder="Detalle de lote, cuentas recibidas o pendientes"></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="button button-primary" type="submit">Guardar compra</button>
+              <button class="button button-secondary" type="button" data-provider-purchase-status="pagado">
+                Marcar pagado
+              </button>
+              <button class="button button-secondary" type="button" data-provider-purchase-status="recibido">
+                Recibir y generar inventario
+              </button>
+              <button class="button button-danger" type="button" data-provider-purchase-status="cancelado">
+                Cancelar compra
+              </button>
+            </div>
+          </form>
+
+          <div class="provider-purchase-summary" id="providerPurchaseSummary" aria-label="Resumen de compras de proveedor"></div>
+
+          <div class="inventory-filters provider-purchase-filters">
+            <select id="providerPurchaseStatusFilter" aria-label="Filtrar compras de proveedor por estado">
+              <option value="">Todos los estados</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="pagado">Pagado</option>
+              <option value="recibido">Recibido</option>
+              <option value="parcial">Parcial</option>
+              <option value="cancelado">Cancelado</option>
+            </select>
+            <select id="providerPurchaseInventoryFilter" aria-label="Filtrar compras de proveedor por control de inventario">
+              <option value="">Todo inventario</option>
+              <option value="faltantes">Con faltantes</option>
+              <option value="sin_inventario">Sin inventario</option>
+              <option value="completo">Inventario completo</option>
+              <option value="alerta_vencimiento">Alerta vencimiento</option>
+            </select>
+            <input type="search" id="searchProviderPurchases" placeholder="Buscar compra, proveedor, producto o referencia" />
+          </div>
+
+          <div class="admin-product-list order-list" id="adminProviderPurchaseList"></div>
+        </section>
+      </section>
+
+      <section class="admin-layout inventory-layout admin-view" id="inventario" data-admin-view="inventario" hidden>
+        <aside class="admin-panel product-list-panel" aria-label="Inventario de cuentas">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Inventario</p>
+              <h2>Cuentas</h2>
+            </div>
+            <span class="status-pill" id="inventoryCount">0 cuentas</span>
+          </div>
+          <div class="inventory-filters">
+            <select id="inventoryStatusFilter" aria-label="Filtrar inventario por estado">
+              <option value="">Todos los estados</option>
+              <option value="vence-pronto">Vence pronto</option>
+              <option value="pendiente_revision">Pendiente revision</option>
+              <option value="disponible">Disponible</option>
+              <option value="ocupado">Ocupado</option>
+              <option value="reservado">Reservado</option>
+              <option value="por_vencer">Por vencer</option>
+              <option value="vencido">Vencido</option>
+              <option value="reclamo">Reclamo</option>
+              <option value="baja">Baja</option>
+            </select>
+            <input type="search" id="searchInventory" placeholder="Buscar por producto, proveedor o cuenta" />
+          </div>
+          <div class="admin-product-list" id="adminInventoryList"></div>
+        </aside>
+
+        <section class="admin-panel editor-panel" aria-labelledby="inventoryFormTitle">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">InventarioCuentas</p>
+              <h2 id="inventoryFormTitle">Nueva cuenta</h2>
+            </div>
+            <button class="button button-secondary compact-button" type="button" id="newInventoryButton">
+              Nueva cuenta
+            </button>
+          </div>
+
+          <form class="product-form inventory-form" id="inventoryForm">
+            <div class="form-grid">
+              <label>
+                ID inventario
+                <input name="inventario_id" type="text" placeholder="INV-Netflix-001" />
+              </label>
+              <label>
+                Compra proveedor
+                <input name="compra_id" type="text" placeholder="CPR-001" readonly />
+              </label>
+              <label>
+                Producto
+                <select name="producto_id" id="inventoryProductSelect">
+                  <option value="">Producto no vinculado</option>
+                </select>
+              </label>
+              <label>
+                Nombre producto
+                <input name="producto_nombre" type="text" placeholder="Netflix Premium" />
+              </label>
+              <label>
+                Proveedor
+                <input name="proveedor" type="text" placeholder="Proveedor mayorista" required />
+              </label>
+              <label>
+                Celular proveedor
+                <input name="celular_proveedor" type="text" placeholder="999 999 999" />
+              </label>
+              <label>
+                Costo proveedor
+                <input name="costo_proveedor" type="number" min="0" step="0.01" placeholder="8" />
+              </label>
+              <label>
+                Precio venta sugerido
+                <input name="precio_venta_sugerido" type="number" min="0" step="0.01" placeholder="12" />
+              </label>
+              <label>
+                Referencia compra
+                <input name="referencia_compra" type="text" placeholder="Operacion, lote o comprobante" />
+              </label>
+              <label>
+                Estado
+                <select name="estado">
+                  <option value="pendiente_revision">Pendiente revision</option>
+                  <option value="disponible">Disponible</option>
+                  <option value="ocupado">Ocupado</option>
+                  <option value="reservado">Reservado</option>
+                  <option value="por_vencer">Por vencer</option>
+                  <option value="vencido">Vencido</option>
+                  <option value="reclamo">Reclamo</option>
+                  <option value="baja">Baja</option>
+                </select>
+              </label>
+              <label>
+                Estado control
+                <input name="estado_control" type="text" placeholder="Compra validada, pendiente proveedor, reclamo" />
+              </label>
+              <label>
+                Usuario / correo
+                <input name="cuenta_usuario" type="text" placeholder="correo@cuenta.com" />
+              </label>
+              <label>
+                Clave
+                <span class="password-field">
+                  <input name="cuenta_clave" type="password" autocomplete="new-password" placeholder="clave de acceso" />
+                  <button class="password-toggle compact-button" type="button" id="toggleInventoryPassword" aria-pressed="false">
+                    Mostrar
+                  </button>
+                </span>
+              </label>
+              <label>
+                Perfil
+                <input name="perfil_nombre" type="text" placeholder="Perfil 1" />
+              </label>
+              <label>
+                PIN
+                <input name="pin" type="text" placeholder="1234" />
+              </label>
+              <label>
+                Fecha compra
+                <input name="fecha_compra" type="date" />
+              </label>
+              <label>
+                Vence proveedor
+                <input name="fecha_vencimiento_proveedor" type="date" />
+              </label>
+              <label>
+                Vence cliente
+                <input name="fecha_vencimiento_cliente" type="date" />
+              </label>
+              <label>
+                Pedido asignado
+                <input name="pedido_id" type="text" placeholder="Sin asignar" readonly />
+              </label>
+              <label class="form-wide">
+                Notas
+                <textarea name="notas" rows="3" placeholder="Detalle operativo interno"></textarea>
+              </label>
+            </div>
+
+            <div class="form-actions">
+              <button class="button button-primary" type="submit" id="saveInventoryButton">
+                Guardar cuenta
+              </button>
+              <button class="button button-secondary" type="button" id="renewInventoryButton">
+                Renovar fechas
+              </button>
+              <button class="button button-secondary" type="button" id="notifyRenewalButton">
+                Avisar vencimiento
+              </button>
+              <button class="button button-secondary" type="button" id="cutServiceButton">
+                Corte de servicio
+              </button>
+              <button class="button button-danger" type="button" id="releaseInventoryButton">
+                Liberar cuenta
+              </button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <section class="admin-layout renewals-layout admin-view" id="renovaciones" data-admin-view="renovaciones" hidden>
+        <aside class="admin-panel product-list-panel" aria-label="Renovaciones registradas">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Renovaciones</p>
+              <h2>Historial</h2>
+            </div>
+            <span class="status-pill" id="renewalCount">0 renovaciones</span>
+          </div>
+          <div class="inventory-filters">
+            <select id="renewalStatusFilter" aria-label="Filtrar renovaciones por estado">
+              <option value="">Todos los estados</option>
+              <option value="pendiente_aviso">Pendiente aviso</option>
+              <option value="avisado">Avisado</option>
+              <option value="comprobante_recibido">Comprobante recibido</option>
+              <option value="pagado">Pagado</option>
+              <option value="renovado">Renovado</option>
+              <option value="vencido">Vencido</option>
+              <option value="cancelado">Cancelado</option>
+            </select>
+            <input type="search" id="searchRenewals" placeholder="Buscar cliente, producto o pedido" />
+          </div>
+          <div class="admin-product-list" id="adminRenewalList"></div>
+        </aside>
+
+        <section class="admin-panel editor-panel" aria-labelledby="renewalPanelTitle">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Control de cobro</p>
+              <h2 id="renewalPanelTitle">Cuentas por vencer</h2>
+            </div>
+          </div>
+          <div class="renewal-due-list" id="renewalDueList"></div>
+          <div class="renewal-editor" id="renewalEditor"></div>
+        </section>
+      </section>
+
+      <section class="admin-layout export-layout admin-view" id="exportar" data-admin-view="exportar" hidden>
+        <section class="admin-panel preview-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Vista previa</p>
+              <h2>Tarjeta publicada</h2>
+            </div>
+          </div>
+          <div class="product-grid admin-preview-grid" id="productPreview"></div>
+        </section>
+
+        <section class="admin-panel export-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Exportar</p>
+              <h2>productos.json</h2>
+            </div>
+          </div>
+          <div class="export-actions">
+            <button class="button button-primary" type="button" id="downloadJsonButton">
+              Descargar JSON
+            </button>
+            <button class="button button-secondary" type="button" id="copyJsonButton">
+              Copiar JSON
+            </button>
+          </div>
+          <textarea id="jsonOutput" rows="14" spellcheck="false" aria-label="JSON generado"></textarea>
+          <p class="copy-status" id="adminStatus" aria-live="polite"></p>
+        </section>
+      </section>
+
+      <section class="admin-layout admin-view" id="plantillas" data-admin-view="plantillas" hidden>
+        <aside class="admin-panel product-list-panel" aria-label="Plantillas de mensajes">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Mensajes</p>
+              <h2>Plantillas</h2>
+            </div>
+            <span class="status-pill" id="templateCount">0 plantillas</span>
+          </div>
+          <div class="admin-product-list" id="adminTemplateList"></div>
+        </aside>
+
+        <section class="admin-panel editor-panel" aria-labelledby="templateFormTitle">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Mantenimiento</p>
+              <h2 id="templateFormTitle">Plantilla</h2>
+            </div>
+          </div>
+          <form class="product-form" id="templateForm">
+            <div class="form-grid">
+              <label>
+                ID
+                <input name="id" type="text" readonly />
+              </label>
+              <label>
+                Nombre
+                <input name="nombre" type="text" required />
+              </label>
+              <label>
+                Asunto
+                <input name="asunto" type="text" />
+              </label>
+              <label>
+                Estado
+                <select name="estado">
+                  <option value="activo">Activo</option>
+                  <option value="inactivo">Inactivo</option>
+                </select>
+              </label>
+              <label>
+                Orden
+                <input name="orden" type="number" min="1" step="1" />
+              </label>
+              <label class="form-wide">
+                Contenido
+                <textarea name="contenido" rows="8" required></textarea>
+              </label>
+            </div>
+            <p class="local-file-note">
+              Variables disponibles: {{cliente_nombre}}, {{cliente_contacto}}, {{pedido_id}}, {{producto_nombre}}, {{datos_entrega}}, {{fecha_vencimiento_cliente}}, {{monto}}, {{proveedor}}, {{cuenta_usuario}}, {{cuenta_clave}}, {{perfil_nombre}}, {{pin}}.
+            </p>
+            <div class="form-actions">
+              <button class="button button-primary" type="submit">Guardar plantilla</button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <section class="admin-panel orders-panel admin-view" id="auditoria" data-admin-view="auditoria" hidden>
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Auditoria</p>
+            <h2>Actividad reciente</h2>
+          </div>
+          <span class="status-pill is-muted" id="auditCount">0 eventos</span>
+        </div>
+        <div class="admin-product-list order-list" id="adminAuditList"></div>
+      </section>
+    </main>
+
+    <div class="confirm-modal" id="deleteModal" aria-hidden="true">
+      <div class="modal-backdrop" data-cancel-delete></div>
+      <section class="modal-dialog confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="deleteTitle">
+        <button class="modal-close" type="button" aria-label="Cancelar eliminacion" data-cancel-delete>x</button>
+        <div class="modal-heading">
+          <p class="eyebrow">Confirmacion requerida</p>
+          <h2 id="deleteTitle">Eliminar producto</h2>
+          <p id="deleteMessage">Esta accion quitara el producto del JSON exportado.</p>
+        </div>
+        <label class="confirm-check">
+          <input type="checkbox" id="confirmDeleteCheck" />
+          Confirmo que deseo eliminar este producto del catalogo.
+        </label>
+        <div class="form-actions">
+          <button class="button button-danger" type="button" id="confirmDeleteButton" disabled>
+            Eliminar definitivamente
+          </button>
+          <button class="button button-secondary" type="button" data-cancel-delete>
+            Cancelar
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <script src="admin.js"></script>
+  </body>
+</html>
