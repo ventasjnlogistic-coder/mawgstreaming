@@ -242,9 +242,10 @@ h3 {
 .plan-card.highlighted .button-primary,
 .order-card .button-primary,
 .proof-form .button-primary {
-  background: linear-gradient(135deg, #ff7a1a, #f5a623);
-  color: #17252a;
-  box-shadow: 0 16px 38px rgba(255, 122, 26, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(135deg, #ff6a1a 0%, #f23a5f 48%, #c6158f 100%);
+  color: #feffff;
+  box-shadow: 0 16px 38px rgba(198, 21, 143, 0.28);
 }
 
 .button-secondary {
