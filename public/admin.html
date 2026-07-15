@@ -445,7 +445,7 @@
               </label>
               <label class="form-wide">
                 Plantilla de entrega
-                <textarea name="plantilla_entrega" rows="8" placeholder=":estrella: *MAWG Streaming te da la bienvenida*&#10;&#10;:tv: *Producto:* {{producto_nombre}}&#10;&#10;:correo: *Correo:* {{cuenta_usuario}}&#10;:llave: *Clave:* {{cuenta_clave}}&#10;&#10;:perfil: *Perfil:* {{perfil_nombre}}&#10;:candado: *PIN:* {{pin}}&#10;:calendario: *Fecha de renovacion:* {{fecha_vencimiento_cliente}}&#10;&#10;:alerta: *IMPORTANTE:*&#10;- Usar solo en un dispositivo.&#10;- No cambiar la clave ni el metodo de facturacion.&#10;- Si no cumple, la garantia expirara sin reclamo."></textarea>
+                <textarea name="plantilla_entrega" rows="8" placeholder=":estrella: *MAWG Streaming te da la bienvenida*&#10;&#10;:tv: *Producto:* {{producto_nombre}}&#10;&#10;:correo: *Correo:* {{cuenta_usuario}}&#10;:llave: *Clave:* {{cuenta_clave}}&#10;:link: *URL producto:* {{url_producto}}&#10;&#10;:perfil: *Perfil:* {{perfil_nombre}}&#10;:candado: *PIN:* {{pin}}&#10;:calendario: *Fecha de renovacion:* {{fecha_vencimiento_cliente}}&#10;&#10;:alerta: *IMPORTANTE:*&#10;- Usar solo en un dispositivo.&#10;- No cambiar la clave ni el metodo de facturacion.&#10;- Si no cumple, la garantia expirara sin reclamo."></textarea>
               </label>
               <label class="form-wide">
                 Componentes del combo
@@ -590,6 +590,10 @@
               <label>
                 Clave
                 <input name="cuenta_clave" type="text" autocomplete="off" placeholder="clave enviada por proveedor" />
+              </label>
+              <label>
+                URL producto
+                <input name="url_producto" type="text" placeholder="https://..." />
               </label>
               <label>
                 Metodo pago
@@ -738,6 +742,10 @@
               <label>
                 Referencia compra
                 <input name="referencia_compra" type="text" placeholder="Operacion, lote o comprobante" />
+              </label>
+              <label>
+                URL producto
+                <input name="url_producto" type="text" placeholder="https://..." />
               </label>
               <label>
                 Estado
@@ -938,7 +946,7 @@
               </label>
             </div>
             <p class="local-file-note">
-              Variables disponibles: {{cliente_nombre}}, {{cliente_contacto}}, {{pedido_id}}, {{producto_nombre}}, {{datos_entrega}}, {{fecha_vencimiento_cliente}}, {{monto}}, {{proveedor}}, {{cuenta_usuario}}, {{cuenta_clave}}, {{perfil_nombre}}, {{pin}}.
+              Variables disponibles: {{cliente_nombre}}, {{cliente_contacto}}, {{pedido_id}}, {{producto_nombre}}, {{datos_entrega}}, {{fecha_vencimiento_cliente}}, {{monto}}, {{proveedor}}, {{cuenta_usuario}}, {{cuenta_clave}}, {{url_producto}}, {{perfil_nombre}}, {{pin}}.
             </p>
             <div class="form-actions">
               <button class="button button-primary" type="submit">Guardar plantilla</button>

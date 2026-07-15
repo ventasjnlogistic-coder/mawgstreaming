@@ -5,6 +5,7 @@ const defaultDeliveryTemplate = [
   "",
   ":correo: *Correo:* {{cuenta_usuario}}",
   ":llave: *Clave:* {{cuenta_clave}}",
+  ":link: *URL producto:* {{url_producto}}",
   "",
   ":perfil: *Perfil:* {{perfil_nombre}}",
   ":candado: *PIN:* {{pin}}",
@@ -25,6 +26,7 @@ const whatsappEmojiMap = {
   ":llave:": String.fromCodePoint(0x1f511),
   ":perfil:": String.fromCodePoint(0x1f464),
   ":candado:": String.fromCodePoint(0x1f510),
+  ":link:": String.fromCodePoint(0x1f517),
   ":calendario:": String.fromCodePoint(0x1f5d3, 0xfe0f),
   ":alerta:": String.fromCodePoint(0x26a0, 0xfe0f),
   ":check:": String.fromCodePoint(0x2705),
@@ -62,6 +64,7 @@ const defaultInventoryItem = {
   pin: "",
   estado: "disponible",
   estado_control: "",
+  url_producto: "",
   pedido_id: "",
   cliente_nombre: "",
   cliente_contacto: "",
@@ -97,6 +100,7 @@ const defaultProviderPurchase = {
   costo_unitario: "",
   cuenta_usuario: "",
   cuenta_clave: "",
+  url_producto: "",
   metodo_pago: "",
   referencia_pago: "",
   fecha_compra: "",
@@ -558,6 +562,7 @@ function normalizeOrderAssignments(value) {
       datos_entrega: String(entry.datos_entrega || "").trim(),
       cuenta_usuario: String(entry.cuenta_usuario || "").trim(),
       cuenta_clave: String(entry.cuenta_clave || "").trim(),
+      url_producto: String(entry.url_producto || "").trim(),
       notas_entrega: String(entry.notas_entrega || "").trim(),
     }))
     .filter((entry) => entry.inventario_id || entry.componente_nombre || entry.producto_id);
@@ -576,6 +581,7 @@ function normalizeInventoryItem(item = {}) {
     proveedor: String(item.proveedor || "").trim(),
     celular_proveedor: String(item.celular_proveedor || "").trim(),
     referencia_compra: String(item.referencia_compra || "").trim(),
+    url_producto: String(item.url_producto || "").trim(),
     estado_control: String(item.estado_control || "").trim(),
     fecha_vencimiento_proveedor: String(item.fecha_vencimiento_proveedor || "").trim(),
     estado: String(item.estado || "disponible").trim().toLowerCase(),
@@ -610,6 +616,7 @@ function normalizeProviderPurchase(purchase = {}) {
     costo_unitario: purchase.costo_unitario ?? "",
     cuenta_usuario: String(purchase.cuenta_usuario || "").trim(),
     cuenta_clave: String(purchase.cuenta_clave || "").trim(),
+    url_producto: String(purchase.url_producto || "").trim(),
     estado: purchase.estado || "pendiente",
   };
 }
@@ -1335,7 +1342,9 @@ function getOrderDeliveryLines(order) {
 
   normalizedOrder.asignaciones_inventario.forEach((assignment) => {
     const heading = assignment.componente_nombre || assignment.producto_id || "Producto";
-    const detail = assignment.datos_entrega || assignment.notas_entrega || assignment.inventario_id;
+    const urlProducto = assignment.url_producto || normalizedOrder.url_producto || "";
+    const detailParts = [assignment.datos_entrega, urlProducto ? `URL: ${urlProducto}` : "", assignment.notas_entrega, assignment.inventario_id].filter(Boolean);
+    const detail = detailParts.join(" | ");
     lines.push(`${heading}: ${detail}`);
   });
 
@@ -1399,6 +1408,7 @@ function getDeliveryTemplateValues(order) {
     cuenta_clave: resolvedAccount.cuenta_clave,
     perfil_nombre: resolvedAccount.perfil_nombre,
     pin: resolvedAccount.pin,
+    url_producto: resolvedAccount.url_producto,
     fecha_vencimiento_cliente: normalizedOrder.fecha_vencimiento_cliente || firstAssignment.fecha_vencimiento_cliente || "",
     fecha_entrega: normalizedOrder.fecha_entrega || firstAssignment.fecha_entrega || "",
     vencimiento_formateado: normalizedOrder.fecha_vencimiento_cliente ? formatDate(normalizedOrder.fecha_vencimiento_cliente) : "",
@@ -1424,6 +1434,7 @@ function resolveDeliveryAccount(order, assignment = {}, inventoryItem = null) {
     cuenta_clave: String(assignment.cuenta_clave || source.cuenta_clave || order.cuenta_clave || "").trim(),
     perfil_nombre: String(assignment.perfil_nombre || source.perfil_nombre || order.perfil_nombre || "").trim(),
     pin: String(assignment.pin || source.pin || order.pin || "").trim(),
+    url_producto: String(assignment.url_producto || source.url_producto || order.url_producto || "").trim(),
   };
 }
 
@@ -3286,6 +3297,7 @@ function normalizeInventoryOrder(order) {
     fecha_entrega: order.fecha_entrega || "",
     fecha_vencimiento_cliente: order.fecha_vencimiento_cliente || "",
     datos_entrega: order.datos_entrega || "",
+    url_producto: order.url_producto || "",
     plantilla_entrega: order.plantilla_entrega || "",
     asignaciones_inventario: normalizeOrderAssignments(order.asignaciones_inventario),
   };
