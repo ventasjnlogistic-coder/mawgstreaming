@@ -763,6 +763,34 @@ function formatDateInput(value) {
   return String(value).slice(0, 10);
 }
 
+function formatLocalDateInput(date) {
+  const safeDate = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(safeDate.getTime())) {
+    return "";
+  }
+
+  const year = safeDate.getFullYear();
+  const month = String(safeDate.getMonth() + 1).padStart(2, "0");
+  const day = String(safeDate.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDefaultDateInput(daysToAdd = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysToAdd);
+  return formatLocalDateInput(date);
+}
+
+function addDaysToDateInput(value, daysToAdd = 0) {
+  const date = value ? new Date(`${value}T00:00:00`) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  date.setDate(date.getDate() + daysToAdd);
+  return formatLocalDateInput(date);
+}
+
 function getDefaultClientExpirationDate() {
   const date = new Date();
   date.setDate(date.getDate() + 30);
@@ -1878,7 +1906,15 @@ function renderInventoryList() {
 }
 
 function fillInventoryForm(item) {
+  const isNewItem = !item || !item.inventario_id;
   const safeItem = normalizeInventoryItem(item);
+
+  if (isNewItem) {
+    safeItem.fecha_compra = safeItem.fecha_compra || getDefaultDateInput();
+    safeItem.fecha_vencimiento_proveedor = safeItem.fecha_vencimiento_proveedor || addDaysToDateInput(safeItem.fecha_compra, 30);
+    safeItem.fecha_vencimiento_cliente = safeItem.fecha_vencimiento_cliente || addDaysToDateInput(safeItem.fecha_compra, 30);
+  }
+
   selectedInventoryId = safeItem.inventario_id;
 
   if (inventoryFormTitle) {
@@ -2270,7 +2306,14 @@ function renderProviderPurchases() {
 }
 
 function fillProviderPurchaseForm(purchase) {
+  const isNewPurchase = !purchase || !purchase.compra_id;
   const safePurchase = normalizeProviderPurchase(purchase);
+
+  if (isNewPurchase) {
+    safePurchase.fecha_compra = safePurchase.fecha_compra || getDefaultDateInput();
+    safePurchase.fecha_vencimiento_proveedor = safePurchase.fecha_vencimiento_proveedor || getDefaultDateInput(30);
+  }
+
   selectedProviderPurchaseId = safePurchase.compra_id;
 
   if (providerPurchaseFormTitle) {
@@ -3421,7 +3464,7 @@ window.addEventListener("hashchange", () => {
 
 newInventoryButton?.addEventListener("click", () => {
   selectedInventoryId = "";
-  fillInventoryForm(defaultInventoryItem);
+  fillInventoryForm({ ...defaultInventoryItem });
 });
 
 document.querySelector("#newProductButton")?.addEventListener("click", () => {
@@ -3662,7 +3705,7 @@ newProviderButton?.addEventListener("click", () => {
 
 newProviderPurchaseButton?.addEventListener("click", () => {
   selectedProviderPurchaseId = "";
-  fillProviderPurchaseForm(defaultProviderPurchase);
+  fillProviderPurchaseForm({ ...defaultProviderPurchase });
 });
 
 providerForm?.addEventListener("submit", async (event) => {
@@ -3768,6 +3811,22 @@ productForm?.addEventListener("submit", async (event) => {
     await saveProduct(product);
   } catch (error) {
     setStatus(error.message, true);
+  }
+});
+
+inventoryForm?.elements.namedItem("fecha_compra")?.addEventListener("change", (event) => {
+  if (selectedInventoryId) {
+    return;
+  }
+
+  const providerExpirationField = inventoryForm?.elements.namedItem("fecha_vencimiento_proveedor");
+  if (providerExpirationField) {
+    providerExpirationField.value = addDaysToDateInput(event.target.value, 30);
+  }
+
+  const clientExpirationField = inventoryForm?.elements.namedItem("fecha_vencimiento_cliente");
+  if (clientExpirationField) {
+    clientExpirationField.value = addDaysToDateInput(event.target.value, 30);
   }
 });
 
