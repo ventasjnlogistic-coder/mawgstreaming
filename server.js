@@ -850,6 +850,8 @@ async function releaseInventoryItem(id, payload = {}) {
       pedido_id: "",
       cliente_nombre: "",
       cliente_contacto: "",
+      perfil_nombre: "",
+      pin: "",
       fecha_entrega: "",
       notas: [item.notas, String(payload.notas || "").trim()].filter(Boolean).join(" | "),
       actualizado_en: now,

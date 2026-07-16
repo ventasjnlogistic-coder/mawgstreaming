@@ -895,13 +895,10 @@ function buildWhatsAppUrl(contact, message) {
   }
 
   const params = new URLSearchParams({
-    phone,
     text: renderWhatsAppEmojis(message),
-    type: "phone_number",
-    app_absent: "0",
   });
 
-  return `https://web.whatsapp.com/send/?${params.toString()}`;
+  return `https://wa.me/${phone}?${params.toString()}`;
 }
 
 function sumMoney(values) {
@@ -1856,6 +1853,7 @@ function getFilteredInventory() {
         item.cuenta_usuario,
         item.pedido_id,
         item.cliente_nombre,
+        item.cliente_contacto,
       ]
         .join(" ")
         .toLowerCase()
@@ -1893,6 +1891,7 @@ function renderInventoryList() {
             <small>${escapeHtml(item.inventario_id)} | ${escapeHtml(item.proveedor || "Sin proveedor")}</small>
             ${item.compra_id ? `<small>Compra proveedor: ${escapeHtml(item.compra_id)}</small>` : ""}
             <small>${item.pedido_id ? `Pedido: ${escapeHtml(item.pedido_id)}` : "Sin asignar"} | Vence: ${escapeHtml(formatDate(item.fecha_vencimiento_cliente))}</small>
+            <small>Cliente: ${escapeHtml(item.cliente_nombre || "Sin cliente")} | Contacto: ${escapeHtml(item.cliente_contacto || "Sin contacto")}</small>
             <small>
               <span class="expiration-pill is-${escapeHtml(expirationStatus.level)}">Cliente: ${escapeHtml(expirationStatus.label)}</span>
               <span class="expiration-pill is-${escapeHtml(providerExpirationStatus.level)}">Proveedor: ${escapeHtml(providerExpirationStatus.label)}</span>
