@@ -56,6 +56,15 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function formatRichText(value) {
+  const escaped = escapeHtml(String(value ?? "").replace(/\r\n/g, "\n"));
+
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(?!\s)([^*\n]+?)(?<!\s)\*/g, "<strong>$1</strong>")
+    .replace(/\n/g, "<br>");
+}
+
 function normalizePaymentMethod(method) {
   return {
     id: String(method.id || method.nombre || "").trim(),
@@ -81,6 +90,14 @@ function formatPrice(price) {
 
 function normalizeState(state) {
   return String(state ?? "disponible").toLowerCase();
+}
+
+function sortProductsForDisplay(items = []) {
+  return [...items].sort((left, right) => {
+    const leftOrder = Number.isFinite(Number(left.orden)) ? Number(left.orden) : 999;
+    const rightOrder = Number.isFinite(Number(right.orden)) ? Number(right.orden) : 999;
+    return leftOrder - rightOrder || String(left.nombre || "").localeCompare(String(right.nombre || ""));
+  });
 }
 
 function showStorefrontMessage(message, isError = false) {
@@ -113,7 +130,7 @@ function renderProductCard(product) {
       </div>
       <h3>${escapeHtml(product.nombre)}</h3>
       <p class="product-type">${escapeHtml(product.categoria || product.tipo || "Producto digital")}</p>
-      <p>${escapeHtml(product.descripcion)}</p>
+      <p class="product-description">${formatRichText(product.descripcion)}</p>
       <div class="price">${escapeHtml(precio)} <span>precio</span></div>
       <button
         class="button button-primary buy-button"
@@ -195,7 +212,7 @@ async function loadProducts() {
       return;
     }
 
-    productCatalog.innerHTML = products.map(renderProductCard).join("");
+    productCatalog.innerHTML = sortProductsForDisplay(products).map(renderProductCard).join("");
     showStorefrontMessage("");
     wireBuyButtons();
   } catch {

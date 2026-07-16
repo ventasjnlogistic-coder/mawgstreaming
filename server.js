@@ -6,6 +6,7 @@ const express = require("express");
 const session = require("express-session");
 const multer = require("multer");
 const { createCatalogStore } = require("./src/services/catalog");
+const JsonCatalogStore = require("./src/services/catalog/jsonCatalogStore");
 const { normalizeProduct, validateProduct } = require("./src/services/catalog/validation");
 const { createOrderStore } = require("./src/services/orders");
 const { normalizeOrder, validateOrder, validateProof, VALID_STATUSES } = require("./src/services/orders/validation");
@@ -46,6 +47,7 @@ const isProduction = process.env.NODE_ENV === "production";
 const host = process.env.HOST || (isProduction ? "0.0.0.0" : "127.0.0.1");
 const trustProxy = process.env.TRUST_PROXY === "true" || process.env.TRUST_PROXY === "1";
 const catalogStore = createCatalogStore();
+const localCatalogStore = new JsonCatalogStore(process.env.CATALOG_JSON_PATH || "productos.json");
 const orderStore = createOrderStore();
 const inventoryStore = createInventoryStore();
 const renewalStore = createRenewalStore();
@@ -302,12 +304,28 @@ function maskValue(value) {
 }
 
 async function readProducts() {
-  const products = await catalogStore.listProducts();
-  return products.map(normalizeProduct);
+  try {
+    const products = await catalogStore.listProducts();
+    return products.map(normalizeProduct);
+  } catch (error) {
+    logUnexpectedError(error);
+    const products = await localCatalogStore.listProducts();
+    return products.map(normalizeProduct);
+  }
 }
 
 async function writeProducts(products) {
-  return catalogStore.saveProducts(products.map(normalizeProduct));
+  const normalizedProducts = products.map(normalizeProduct);
+
+  if (typeof catalogStore.saveProducts === "function") {
+    try {
+      return catalogStore.saveProducts(normalizedProducts);
+    } catch (error) {
+      logUnexpectedError(error);
+    }
+  }
+
+  return localCatalogStore.saveProducts(normalizedProducts);
 }
 
 async function createProduct(product) {
@@ -382,7 +400,8 @@ async function readProductsWithStock() {
     return [];
   });
 
-  return products.map((product) => {
+  return products
+    .map((product) => {
     const stock = getProductStock(product, products, inventory);
     const venderSinStock = isSellEnabled(product.vender);
     const available = product.estado === "disponible" && (stock > 0 || venderSinStock);
@@ -393,7 +412,12 @@ async function readProductsWithStock() {
       vender: venderSinStock ? "si" : "no",
       estado: available ? "disponible" : "agotado",
     };
-  });
+    })
+    .sort((left, right) => {
+      const leftOrder = Number.isFinite(Number(left.orden)) ? Number(left.orden) : 999;
+      const rightOrder = Number.isFinite(Number(right.orden)) ? Number(right.orden) : 999;
+      return leftOrder - rightOrder || String(left.nombre || "").localeCompare(String(right.nombre || ""));
+    });
 }
 
 function isSellEnabled(value) {
@@ -752,6 +776,7 @@ async function assignInventoryToOrder(orderId, inventoryId, payload = {}) {
       datos_entrega: datosEntrega,
       cuenta_usuario: deliveryItem.cuenta_usuario,
       cuenta_clave: deliveryItem.cuenta_clave,
+      url_producto: deliveryItem.url_producto,
       perfil_nombre: deliveryItem.perfil_nombre,
       pin: deliveryItem.pin,
       notas_entrega: assignment.notas_entrega,
@@ -793,6 +818,7 @@ async function assignInventoryToOrder(orderId, inventoryId, payload = {}) {
       .join(" || "),
     cuenta_usuario: firstAssignment.cuenta_usuario || "",
     cuenta_clave: firstAssignment.cuenta_clave || "",
+    url_producto: firstAssignment.url_producto || "",
     asignaciones_inventario: assignmentDetails,
     actualizado_en: now,
   });
@@ -945,6 +971,7 @@ async function createInventoryFromProviderPurchase(purchase) {
       costo_proveedor: purchase.costo_unitario,
       cuenta_usuario: purchase.cuenta_usuario,
       cuenta_clave: purchase.cuenta_clave,
+      url_producto: purchase.url_producto,
       referencia_compra: purchase.referencia_pago || purchase.compra_id,
       fecha_compra: purchase.fecha_compra,
       fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
@@ -1279,7 +1306,14 @@ app.post("/api/admin/logout", requireAuth, (req, res) => {
 
 app.get("/api/admin/productos", requireAuth, async (_req, res) => {
   try {
-    res.json(await readProducts());
+    const products = await readProducts();
+    res.json(
+      products.sort((left, right) => {
+        const leftOrder = Number.isFinite(Number(left.orden)) ? Number(left.orden) : 999;
+        const rightOrder = Number.isFinite(Number(right.orden)) ? Number(right.orden) : 999;
+        return leftOrder - rightOrder || String(left.nombre || "").localeCompare(String(right.nombre || ""));
+      })
+    );
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudo cargar el catalogo." });

@@ -319,5 +319,50 @@
       "comprobante": "COT-20260701233448_CLARO FIBRA_20260701.pdf"
     },
     "creado_en": "2026-07-11T23:08:41.451Z"
+  },
+  {
+    "evento_id": "AUD-20260716041422-U7TE",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260714220431-5O8F",
+    "accion": "actualizar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Alex Zeta"
+    },
+    "creado_en": "2026-07-16T04:14:22.921Z"
+  },
+  {
+    "evento_id": "AUD-20260716043646-L6Z0",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260714220431-5O8F",
+    "accion": "actualizar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Alex Zeta"
+    },
+    "creado_en": "2026-07-16T04:36:46.067Z"
+  },
+  {
+    "evento_id": "AUD-20260716043707-4YS6",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260714220431-5O8F",
+    "accion": "actualizar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "Netflix Perfil",
+      "proveedor": "Alex Zeta"
+    },
+    "creado_en": "2026-07-16T04:37:07.010Z"
   }
 ]

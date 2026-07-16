@@ -45,6 +45,7 @@ const defaultProduct = {
   categoria: "",
   badge: "",
   cta: "Comprar",
+  orden: 999,
   componentes: [],
 };
 
@@ -398,6 +399,15 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function formatRichText(value) {
+  const escaped = escapeHtml(String(value ?? "").replace(/\r\n/g, "\n"));
+
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(?!\s)([^*\n]+?)(?<!\s)\*/g, "<strong>$1</strong>")
+    .replace(/\n/g, "<br>");
+}
+
 function slugify(value) {
   return String(value ?? "")
     .normalize("NFD")
@@ -452,9 +462,18 @@ function normalizeProduct(product = {}) {
     estado: product.estado || "disponible",
     vender: String(product.vender || "no").trim().toLowerCase() === "si" ? "si" : "no",
     cta: product.cta || "Comprar",
+    orden: Number.isFinite(Number(product.orden)) ? Number(product.orden) : 999,
     plantilla_entrega: String(product.plantilla_entrega || defaultDeliveryTemplate).trim(),
     componentes: normalizeProductComponents(product.componentes),
   };
+}
+
+function sortProductsForDisplay(items = []) {
+  return [...items].sort((left, right) => {
+    const leftOrder = Number.isFinite(Number(left.orden)) ? Number(left.orden) : 999;
+    const rightOrder = Number.isFinite(Number(right.orden)) ? Number(right.orden) : 999;
+    return leftOrder - rightOrder || String(left.nombre || "").localeCompare(String(right.nombre || ""));
+  });
 }
 
 function normalizeProductComponents(value) {
@@ -1362,10 +1381,7 @@ function getOrderDeliveryLines(order) {
 function getDeliveryTemplateSource(order) {
   const normalizedOrder = normalizeInventoryOrder(order);
   const product = findProductForOrder(normalizedOrder);
-  const productTemplate = String(product?.plantilla_entrega || "").trim();
-  const orderTemplate = String(normalizedOrder.plantilla_entrega || "").trim();
-
-  return productTemplate || orderTemplate;
+  return String(product?.plantilla_entrega || defaultDeliveryTemplate).trim();
 }
 
 function findProductForOrder(order) {
@@ -1657,7 +1673,7 @@ function renderProductCard(product) {
       </div>
       <h3>${escapeHtml(product.nombre || "Producto sin nombre")}</h3>
       <p class="product-type">${escapeHtml(product.categoria || product.tipo || "Producto digital")}</p>
-      <p>${escapeHtml(product.descripcion || "Sin descripcion")}</p>
+      <p class="product-description">${formatRichText(product.descripcion || "Sin descripcion")}</p>
       <div class="price">${escapeHtml(formatPrice(product.precio))} <span>precio</span></div>
       <button class="button button-primary buy-button" type="button" ${disponible ? "" : "disabled"}>
         ${disponible ? escapeHtml(product.cta || "Comprar") : "Agotado"}
@@ -1694,7 +1710,7 @@ function updatePreview() {
 }
 
 function renderList() {
-  const filtered = getFilteredProducts();
+  const filtered = sortProductsForDisplay(getFilteredProducts());
 
   if (productCount) {
     productCount.textContent = `${products.length} ${products.length === 1 ? "item" : "items"}`;
@@ -1771,7 +1787,7 @@ async function loadProducts() {
 
   try {
     const data = await apiRequest("/api/admin/productos");
-    products = data.map(normalizeProduct);
+    products = sortProductsForDisplay(data.map(normalizeProduct));
     selectedId = products[0]?.id || "";
     renderInventoryProductOptions();
     renderManualSaleProductOptions();

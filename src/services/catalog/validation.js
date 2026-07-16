@@ -31,6 +31,7 @@ const DEFAULT_PRODUCT = {
   categoria: "",
   badge: "",
   cta: "Comprar",
+  orden: 999,
   componentes: [],
 };
 
@@ -87,6 +88,7 @@ function normalizeProduct(product = {}) {
     estado: product.estado === "agotado" ? "agotado" : "disponible",
     vender: String(product.vender || DEFAULT_PRODUCT.vender).trim().toLowerCase() === "si" ? "si" : "no",
     cta: product.cta || "Comprar",
+    orden: Number.isFinite(Number(product.orden)) ? Number(product.orden) : DEFAULT_PRODUCT.orden,
     plantilla_entrega: String(product.plantilla_entrega || DEFAULT_DELIVERY_TEMPLATE).trim(),
     componentes,
   };

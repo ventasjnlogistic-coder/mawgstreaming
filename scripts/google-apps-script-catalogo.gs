@@ -18,6 +18,7 @@ const DEFAULT_DELIVERY_TEMPLATE = [
   "",
   ":correo: *Correo:* {{cuenta_usuario}}",
   ":llave: *Clave:* {{cuenta_clave}}",
+  ":link: *URL producto:* {{url_producto}}",
   "",
   ":perfil: *Perfil:* {{perfil_nombre}}",
   ":candado: *PIN:* {{pin}}",
@@ -30,7 +31,7 @@ const DEFAULT_DELIVERY_TEMPLATE = [
   "",
   "Gracias :check:",
 ].join("\n");
-const HEADERS = ["id", "nombre", "tipo", "precio", "descripcion", "imagen", "estado", "categoria", "badge", "cta", "componentes", "plantilla_entrega", "vender"];
+const HEADERS = ["id", "nombre", "tipo", "precio", "descripcion", "imagen", "estado", "categoria", "badge", "cta", "componentes", "plantilla_entrega", "vender", "orden"];
 const ORDER_HEADERS = [
   "pedido_id",
   "producto_id",
@@ -81,6 +82,7 @@ const INVENTORY_HEADERS = [
   "estado_control",
   "fecha_vencimiento_proveedor",
   "compra_id",
+  "url_producto",
 ];
 const INVENTORY_STATUSES = ["pendiente_revision", "disponible", "ocupado", "reservado", "por_vencer", "vencido", "reclamo", "baja"];
 const RENEWAL_HEADERS = [
@@ -129,6 +131,7 @@ const PROVIDER_PURCHASE_HEADERS = [
   "actualizado_en",
   "cuenta_usuario",
   "cuenta_clave",
+  "url_producto",
 ];
 const PROVIDER_STATUSES = ["activo", "observado", "inactivo"];
 const PROVIDER_PURCHASE_STATUSES = ["pendiente", "pagado", "recibido", "parcial", "cancelado"];
@@ -448,6 +451,18 @@ function migrarComprasProveedorCredenciales() {
   };
 }
 
+function migrarColumnaOrdenProductos() {
+  const sheet = getSheet_();
+  ensureColumnsByName_(sheet, HEADERS);
+  ensureSpecificHeaders_(sheet, HEADERS);
+
+  return {
+    success: true,
+    mensaje: "Columna orden verificada en Productos.",
+    headers: sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0],
+  };
+}
+
 function debugComprasProveedorHeaders() {
   const sheet = getProviderPurchasesSheet_();
   return {
@@ -458,6 +473,7 @@ function debugComprasProveedorHeaders() {
 }
 
 function ensureHeaders_(sheet) {
+  ensureColumnsByName_(sheet, HEADERS);
   ensureSpecificHeaders_(sheet, HEADERS);
 }
 
@@ -653,6 +669,7 @@ function normalizeProduct_(product) {
     categoria: product.categoria || "",
     badge: product.badge || "",
     cta: product.cta || "Comprar",
+    orden: Number.isFinite(Number(product.orden)) ? Number(product.orden) : 999,
     componentes: normalizeProductComponents_(product.componentes),
   };
 }
@@ -1302,6 +1319,7 @@ function createInventoryFromProviderPurchase_(purchase) {
         costo_proveedor: purchase.costo_unitario,
         cuenta_usuario: purchase.cuenta_usuario,
         cuenta_clave: purchase.cuenta_clave,
+        url_producto: purchase.url_producto,
         referencia_compra: purchase.referencia_pago || purchase.compra_id,
         fecha_compra: purchase.fecha_compra,
         fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
@@ -1350,6 +1368,7 @@ function normalizeProviderPurchase_(purchase) {
     costo_unitario: costoUnitario,
     cuenta_usuario: String(purchase.cuenta_usuario || "").trim(),
     cuenta_clave: String(purchase.cuenta_clave || "").trim(),
+    url_producto: String(purchase.url_producto || "").trim(),
     metodo_pago: String(purchase.metodo_pago || "").trim(),
     referencia_pago: String(purchase.referencia_pago || "").trim(),
     fecha_compra: String(purchase.fecha_compra || "").trim(),
@@ -1554,6 +1573,7 @@ function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
       datos_entrega: datosEntrega,
       perfil_nombre: perfilNombre,
       pin: pin,
+      url_producto: pair.request.url_producto || pair.item.url_producto || "",
       notas_entrega: pair.request.notas_entrega,
     };
   });
@@ -1602,6 +1622,7 @@ function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
         .filter(Boolean)
         .join(" || "),
       asignaciones_inventario: assignmentDetails,
+      url_producto: firstAssignment.url_producto || "",
       actualizado_en: now,
     })
   );
@@ -1775,6 +1796,7 @@ function normalizeInventoryItem_(item) {
     costo_proveedor: item.costo_proveedor === undefined || item.costo_proveedor === null ? "" : item.costo_proveedor,
     precio_venta_sugerido: item.precio_venta_sugerido === undefined || item.precio_venta_sugerido === null ? "" : item.precio_venta_sugerido,
     referencia_compra: String(item.referencia_compra || "").trim(),
+    url_producto: String(item.url_producto || "").trim(),
     cuenta_usuario: String(item.cuenta_usuario || "").trim(),
     cuenta_clave: String(item.cuenta_clave || "").trim(),
     perfil_nombre: String(item.perfil_nombre || "").trim(),
@@ -2069,6 +2091,7 @@ function normalizeInventoryAssignments_(value, order) {
         fecha_entrega: String(entry.fecha_entrega || "").trim(),
         fecha_vencimiento_cliente: String(entry.fecha_vencimiento_cliente || "").trim(),
         datos_entrega: String(entry.datos_entrega || "").trim(),
+        url_producto: String(entry.url_producto || "").trim(),
         notas_entrega: String(entry.notas_entrega || "").trim(),
       };
     })
