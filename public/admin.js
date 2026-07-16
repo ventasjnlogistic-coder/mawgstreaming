@@ -895,10 +895,11 @@ function buildWhatsAppUrl(contact, message) {
   }
 
   const params = new URLSearchParams({
+    phone,
     text: renderWhatsAppEmojis(message),
   });
 
-  return `https://wa.me/${phone}?${params.toString()}`;
+  return `https://api.whatsapp.com/send?${params.toString()}`;
 }
 
 function sumMoney(values) {
