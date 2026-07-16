@@ -13,7 +13,7 @@ const proofStatus = document.querySelector("#proofStatus");
 const proofMessage = document.querySelector("#proofMessage");
 const storefrontStatus = document.querySelector("#storefrontStatus");
 
-const whatsappNumber = "51901125483";
+const whatsappNumber = "51921217484";
 let selectedProduct = "";
 let selectedProductId = "";
 let selectedPrice = "";
