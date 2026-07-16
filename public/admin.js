@@ -750,6 +750,26 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("es-PE");
 }
 
+function formatShortDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = String(value).match(/^\d{4}-\d{2}-\d{2}/)
+    ? new Date(`${String(value).slice(0, 10)}T00:00:00`)
+    : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleDateString("es-PE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 function formatDateInput(value) {
   if (!value) {
     return "";
@@ -1453,8 +1473,8 @@ function getDeliveryTemplateValues(order) {
     url_producto: resolvedAccount.url_producto,
     fecha_vencimiento_cliente: normalizedOrder.fecha_vencimiento_cliente || firstAssignment.fecha_vencimiento_cliente || "",
     fecha_entrega: normalizedOrder.fecha_entrega || firstAssignment.fecha_entrega || "",
-    vencimiento_formateado: normalizedOrder.fecha_vencimiento_cliente ? formatDate(normalizedOrder.fecha_vencimiento_cliente) : "",
-    entrega_formateada: normalizedOrder.fecha_entrega ? formatDate(normalizedOrder.fecha_entrega) : "",
+    vencimiento_formateado: normalizedOrder.fecha_vencimiento_cliente ? formatShortDate(normalizedOrder.fecha_vencimiento_cliente) : "",
+    entrega_formateada: normalizedOrder.fecha_entrega ? formatShortDate(normalizedOrder.fecha_entrega) : "",
   };
 }
 
@@ -1489,7 +1509,7 @@ function buildDeliveryMessage(order) {
   }
 
   const deliveryLines = getOrderDeliveryLines(normalizedOrder);
-  const expiration = formatDate(normalizedOrder.fecha_vencimiento_cliente);
+  const expiration = formatShortDate(normalizedOrder.fecha_vencimiento_cliente);
 
   return [
     `Hola ${normalizedOrder.cliente_nombre || ""}`.trim() + ", tu pedido fue entregado.",
@@ -1505,7 +1525,7 @@ function buildDeliveryMessage(order) {
 
 function buildRenewalMessage(item) {
   const source = resolveRenewalSource(item);
-  const expiration = formatDate(source.fecha_vencimiento_cliente);
+  const expiration = formatShortDate(source.fecha_vencimiento_cliente);
   const template = getActiveMessageTemplate("renovacion");
   const values = {
     ...source,
@@ -1531,7 +1551,7 @@ function buildRenewalMessage(item) {
 
 function buildServiceCutMessage(item) {
   const source = resolveRenewalSource(item);
-  const expiration = formatDate(source.fecha_vencimiento_cliente);
+  const expiration = formatShortDate(source.fecha_vencimiento_cliente);
   const template = getActiveMessageTemplate("corte_servicio");
   const values = {
     ...source,
