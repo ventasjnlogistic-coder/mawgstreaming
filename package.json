@@ -8,9 +8,9 @@
     "start": "node server.js",
     "start:local": "node server.js",
     "dev": "node server.js",
-    "test": "node --test",
-    "test:api": "node --test test/api.test.js",
-    "test:web": "node --test test/web-smoke.test.js"
+    "test": "node --test otros/pruebas/validation.test.js otros/pruebas/api.test.js otros/pruebas/web-smoke.test.js",
+    "test:api": "node --test otros/pruebas/api.test.js",
+    "test:web": "node --test otros/pruebas/web-smoke.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

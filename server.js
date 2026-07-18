@@ -977,7 +977,7 @@ async function createInventoryFromProviderPurchase(purchase) {
       referencia_compra: purchase.referencia_pago || purchase.compra_id,
       fecha_compra: purchase.fecha_compra,
       fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
-      estado: "pendiente_revision",
+      estado: "disponible",
       estado_control: "Generado desde compra recibida",
       notas: [purchase.notas, `Compra proveedor: ${purchase.compra_id}`].filter(Boolean).join(" | "),
     });

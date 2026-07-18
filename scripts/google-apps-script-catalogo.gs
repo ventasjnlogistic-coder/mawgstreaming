@@ -144,8 +144,9 @@ const DEFAULT_MESSAGE_TEMPLATES = [
   ["entrega", "Entrega", "Datos de acceso", ":estrella: Hola {{cliente_nombre}}, tu servicio {{producto_nombre}} esta listo.\n\n{{datos_entrega}}\n\n:calendario: Vence: {{vencimiento_formateado}}", "activo", 1],
   ["renovacion", "Renovacion", "Renovacion de servicio", ":estrella: Hola {{cliente_nombre}}, tu servicio {{producto_nombre}} esta por vencer el {{vencimiento_formateado}}.\n\n:alerta: Puedes renovar por {{monto}}.", "activo", 2],
   ["corte_servicio", "Corte de servicio", "Servicio cortado", ":alerta: Hola {{cliente_nombre}}, tu servicio {{producto_nombre}} ha sido cortado por falta de pago.\n\nPedido: {{pedido_id}}\nVencimiento: {{vencimiento_formateado}}\n\n:estrella: Para reactivarlo, por favor realiza el pago de {{monto}}.", "activo", 3],
-  ["confirmacion_pago", "Confirmacion de pago", "Pago confirmado", "Hola {{cliente_nombre}}, confirmamos el pago de {{producto_nombre}}. Estamos preparando la entrega.", "activo", 4],
-  ["reclamo", "Reclamo proveedor", "Revision de cuenta", "Hola {{proveedor}}, necesitamos revisar la cuenta {{cuenta_usuario}} del producto {{producto_nombre}}.", "activo", 5],
+  ["actualizacion_datos", "Actualizacion de datos", "Actualizacion de credenciales", ":alerta::megafono: MAWG Streaming te informa: :check::pin_marcador:\n\n:check: ACTUALIZACION DE DATOS :check: | {{producto_nombre}}\n\n:laptop: CORREO: {{cuenta_usuario}}\n:candado: CONTRASENA: {{cuenta_clave}}\n\n:perfil_hombre: PERFIL: {{perfil_nombre}}\n:pin_personal: PIN: {{pin}}\n:calendario: FECHA DE RENOVACION: {{vencimiento_formateado}}", "activo", 4],
+  ["confirmacion_pago", "Confirmacion de pago", "Pago confirmado", "Hola {{cliente_nombre}}, confirmamos el pago de {{producto_nombre}}. Estamos preparando la entrega.", "activo", 5],
+  ["reclamo", "Reclamo proveedor", "Revision de cuenta", "Hola {{proveedor}}, necesitamos revisar la cuenta {{cuenta_usuario}} del producto {{producto_nombre}}.", "activo", 6],
 ];
 const DEFAULT_ADMIN_USERS = [
   ["admin", "Administrador", "admin", "cambia-esta-contrasena", "activo", "*"],
@@ -1016,11 +1017,21 @@ function validatePaymentMethod_(method) {
 }
 
 function seedDefaultMessageTemplates_(sheet) {
-  if (sheet.getLastRow() > 1) {
+  const lastRow = sheet.getLastRow();
+  const existingIds = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, 1).getValues().map(function (row) {
+        return String(row[0] || "").trim();
+      })
+    : [];
+  const missingRows = DEFAULT_MESSAGE_TEMPLATES.filter(function (row) {
+    return existingIds.indexOf(String(row[0] || "").trim()) < 0;
+  });
+
+  if (missingRows.length === 0) {
     return;
   }
 
-  sheet.getRange(2, 1, DEFAULT_MESSAGE_TEMPLATES.length, MESSAGE_TEMPLATE_HEADERS.length).setValues(DEFAULT_MESSAGE_TEMPLATES);
+  sheet.getRange(sheet.getLastRow() + 1, 1, missingRows.length, MESSAGE_TEMPLATE_HEADERS.length).setValues(missingRows);
 }
 
 function listMessageTemplates_() {
@@ -1323,7 +1334,7 @@ function createInventoryFromProviderPurchase_(purchase) {
         referencia_compra: purchase.referencia_pago || purchase.compra_id,
         fecha_compra: purchase.fecha_compra,
         fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
-        estado: "pendiente_revision",
+        estado: "disponible",
         estado_control: "Generado desde compra recibida",
         notas: [purchase.notas, "Compra proveedor: " + purchase.compra_id].filter(Boolean).join(" | "),
       })

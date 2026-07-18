@@ -29,6 +29,11 @@ const whatsappEmojiMap = {
   ":link:": String.fromCodePoint(0x1f517),
   ":calendario:": String.fromCodePoint(0x1f5d3, 0xfe0f),
   ":alerta:": String.fromCodePoint(0x26a0, 0xfe0f),
+  ":megafono:": String.fromCodePoint(0x1f4e2),
+  ":pin_marcador:": String.fromCodePoint(0x1f4cc),
+  ":laptop:": String.fromCodePoint(0x1f4bb),
+  ":perfil_hombre:": String.fromCodePoint(0x1f9d4),
+  ":pin_personal:": String.fromCodePoint(0x1fac6),
   ":check:": String.fromCodePoint(0x2705),
 };
 
@@ -188,6 +193,7 @@ const newInventoryButton = document.querySelector("#newInventoryButton");
 const renewInventoryButton = document.querySelector("#renewInventoryButton");
 const notifyRenewalButton = document.querySelector("#notifyRenewalButton");
 const cutServiceButton = document.querySelector("#cutServiceButton");
+const dataUpdateButton = document.querySelector("#dataUpdateButton");
 const releaseInventoryButton = document.querySelector("#releaseInventoryButton");
 const toggleInventoryPasswordButton = document.querySelector("#toggleInventoryPassword");
 const providerList = document.querySelector("#adminProviderList");
@@ -1573,6 +1579,34 @@ function buildServiceCutMessage(item) {
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function buildDataUpdateMessage(item) {
+  const source = resolveRenewalSource(item);
+  const expiration = formatShortDate(source.fecha_vencimiento_cliente);
+  const template = getActiveMessageTemplate("actualizacion_datos");
+  const values = {
+    ...source,
+    fecha_vencimiento_cliente: source.fecha_vencimiento_cliente || "",
+    vencimiento_formateado: expiration,
+  };
+
+  if (template?.contenido) {
+    return renderTemplateMessage(template.contenido, values).trim();
+  }
+
+  return [
+    ":alerta::megafono: MAWG Streaming te informa: :check::pin_marcador:",
+    "",
+    `:check: ACTUALIZACION DE DATOS :check: | ${source.producto_nombre || source.producto_id || "Servicio"}`,
+    "",
+    `:laptop: CORREO: ${source.cuenta_usuario || ""}`,
+    `:candado: CONTRASENA: ${source.cuenta_clave || ""}`,
+    "",
+    `:perfil_hombre: PERFIL: ${source.perfil_nombre || ""}`,
+    `:pin_personal: PIN: ${source.pin || ""}`,
+    `:calendario: FECHA DE RENOVACION: ${expiration || ""}`,
+  ].join("\n");
 }
 
 function resolveRenewalSource(item = {}) {
@@ -3977,6 +4011,29 @@ cutServiceButton?.addEventListener("click", () => {
   }
 
   setStatus(`Mensaje de corte preparado para ${selectedInventoryId}.`);
+});
+
+dataUpdateButton?.addEventListener("click", () => {
+  if (!selectedInventoryId) {
+    setStatus("Selecciona una cuenta para actualizar datos.", true);
+    return;
+  }
+
+  const item = inventoryItems.find((entry) => entry.inventario_id === selectedInventoryId) || getInventoryFormItem();
+  const dataUpdateSource = resolveRenewalSource(item);
+  const href = buildWhatsAppUrl(dataUpdateSource.cliente_contacto, buildDataUpdateMessage(dataUpdateSource));
+
+  if (!href) {
+    setStatus("La cuenta seleccionada no tiene contacto del cliente.", true);
+    return;
+  }
+
+  if (!openWhatsAppLink(href)) {
+    setStatus("No se pudo abrir WhatsApp.", true);
+    return;
+  }
+
+  setStatus(`Mensaje de actualizacion de datos preparado para ${selectedInventoryId}.`);
 });
 
 toggleInventoryPasswordButton?.addEventListener("click", () => {

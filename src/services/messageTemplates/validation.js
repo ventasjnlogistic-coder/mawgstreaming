@@ -27,12 +27,21 @@ const DEFAULT_MESSAGE_TEMPLATES = [
     orden: 3,
   },
   {
+    id: "actualizacion_datos",
+    nombre: "Actualizacion de datos",
+    asunto: "Actualizacion de credenciales",
+    contenido:
+      ":alerta::megafono: MAWG Streaming te informa: :check::pin_marcador:\n\n:check: ACTUALIZACION DE DATOS :check: | {{producto_nombre}}\n\n:laptop: CORREO: {{cuenta_usuario}}\n:candado: CONTRASENA: {{cuenta_clave}}\n\n:perfil_hombre: PERFIL: {{perfil_nombre}}\n:pin_personal: PIN: {{pin}}\n:calendario: FECHA DE RENOVACION: {{vencimiento_formateado}}",
+    estado: "activo",
+    orden: 4,
+  },
+  {
     id: "confirmacion_pago",
     nombre: "Confirmacion de pago",
     asunto: "Pago confirmado",
     contenido: "Hola {{cliente_nombre}}, confirmamos el pago de {{producto_nombre}}. Estamos preparando la entrega.",
     estado: "activo",
-    orden: 4,
+    orden: 5,
   },
   {
     id: "reclamo",
@@ -40,7 +49,7 @@ const DEFAULT_MESSAGE_TEMPLATES = [
     asunto: "Revision de cuenta",
     contenido: "Hola {{proveedor}}, necesitamos revisar la cuenta {{cuenta_usuario}} del producto {{producto_nombre}}.",
     estado: "activo",
-    orden: 5,
+    orden: 6,
   },
 ];
 

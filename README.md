@@ -308,6 +308,8 @@ Para nuevos despliegues, usa el modo Apps Script porque requiere menos configura
 
 ## Estructura
 
+### Produccion / despliegue
+
 - `server.js`: servidor Express, sesiones, login y rutas API.
 - `src/services/catalog/`: adaptadores de almacenamiento para JSON, Apps Script y Google Sheets directo.
 - `src/services/orders/`: adaptadores y validacion del flujo de pedidos.
@@ -318,6 +320,14 @@ Para nuevos despliegues, usa el modo Apps Script porque requiere menos configura
 - `public/login.html`, `public/login.js`: ingreso privado al admin.
 - `productos.json`: respaldo local del catalogo.
 - `pedidos.json` e `inventario-cuentas.json`: respaldos locales creados automaticamente cuando usas el modo JSON.
+- `package.json` y `package-lock.json`: dependencias y comandos de arranque para Render/local.
+
+### Otros / soporte
+
+- `otros/manuales/`: manuales generados, capturas y renders usados para documentacion.
+- `otros/herramientas-manuales/`: scripts auxiliares para generar manuales.
+- `otros/pruebas/`: pruebas automatizadas del backend, validaciones y smoke test web.
+- `otros/logs/`: logs locales de ejecuciones anteriores.
 
 ## Pruebas
 
