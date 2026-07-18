@@ -149,6 +149,15 @@ const defaultMessageTemplate = {
   orden: 999,
 };
 
+const defaultSiteSetting = {
+  id: "",
+  nombre: "",
+  valor: "",
+  tipo: "texto",
+  estado: "activo",
+  orden: 999,
+};
+
 const productList = document.querySelector("#adminProductList");
 const productForm = document.querySelector("#productForm");
 const productCount = document.querySelector("#productCount");
@@ -226,6 +235,11 @@ const templateList = document.querySelector("#adminTemplateList");
 const templateCount = document.querySelector("#templateCount");
 const templateForm = document.querySelector("#templateForm");
 const templateFormTitle = document.querySelector("#templateFormTitle");
+const siteSettingList = document.querySelector("#adminSiteSettingList");
+const siteSettingCount = document.querySelector("#siteSettingCount");
+const siteSettingForm = document.querySelector("#siteSettingForm");
+const siteSettingFormTitle = document.querySelector("#siteSettingFormTitle");
+const loadSiteSettingsButton = document.querySelector("#loadSiteSettingsButton");
 const adminViews = document.querySelectorAll("[data-admin-view]");
 const adminViewLinks = document.querySelectorAll("[data-admin-target]");
 const adminViewActions = document.querySelectorAll("[data-admin-action]");
@@ -260,6 +274,7 @@ let renewals = [];
 let paymentMethods = [];
 let auditEvents = [];
 let messageTemplates = [];
+let siteSettings = [];
 let sessionUser = null;
 let selectedId = "";
 let selectedInventoryId = "";
@@ -267,6 +282,7 @@ let selectedProviderId = "";
 let selectedProviderPurchaseId = "";
 let selectedRenewalId = "";
 let selectedTemplateId = "";
+let selectedSiteSettingId = "";
 let hasChanges = false;
 const orderStatuses = ["pendiente de pago", "comprobante recibido", "pagado", "entregado", "cancelado"];
 const renewalStatuses = ["pendiente_aviso", "avisado", "comprobante_recibido", "pagado", "renovado", "vencido", "cancelado"];
@@ -303,6 +319,10 @@ const adminViewCopy = {
     title: "Plantillas",
     description: "Administra textos de entrega, renovacion, confirmacion de pago y reclamos sin tocar codigo.",
   },
+  configuracion: {
+    title: "Configuracion",
+    description: "Mantiene contactos de ventas, soporte y horarios visibles en la tienda.",
+  },
   auditoria: {
     title: "Auditoria",
     description: "Revisa cambios recientes en pedidos, inventario, renovaciones, proveedores y compras de proveedor.",
@@ -321,6 +341,7 @@ const adminViewPermissions = {
   proveedores: "proveedores",
   renovaciones: "renovaciones",
   plantillas: "plantillas",
+  configuracion: "plantillas",
   auditoria: "auditoria",
   exportar: "productos",
 };
@@ -675,6 +696,19 @@ function normalizeMessageTemplate(template = {}) {
     contenido: String(template.contenido || "").trim(),
     estado: template.estado === "inactivo" ? "inactivo" : "activo",
     orden: Number.isFinite(Number(template.orden)) ? Number(template.orden) : 999,
+  };
+}
+
+function normalizeSiteSetting(setting = {}) {
+  return {
+    ...defaultSiteSetting,
+    ...setting,
+    id: String(setting.id || "").trim(),
+    nombre: String(setting.nombre || "").trim(),
+    valor: String(setting.valor || "").trim(),
+    tipo: String(setting.tipo || "texto").trim(),
+    estado: setting.estado === "inactivo" ? "inactivo" : "activo",
+    orden: Number.isFinite(Number(setting.orden)) ? Number(setting.orden) : 999,
   };
 }
 
@@ -2802,6 +2836,97 @@ async function saveTemplate() {
   setStatus("Plantilla guardada.");
 }
 
+function renderSiteSettingList() {
+  if (siteSettingCount) {
+    siteSettingCount.textContent = `${siteSettings.length} ${siteSettings.length === 1 ? "dato" : "datos"}`;
+  }
+
+  if (!siteSettingList) {
+    return;
+  }
+
+  if (siteSettings.length === 0) {
+    siteSettingList.innerHTML = '<p class="catalog-message">No hay configuracion para mostrar.</p>';
+    return;
+  }
+
+  siteSettingList.innerHTML = siteSettings
+    .map(
+      (setting) => `
+        <button class="admin-product-item ${setting.id === selectedSiteSettingId ? "is-active" : ""}" type="button" data-site-setting-id="${escapeHtml(setting.id)}">
+          <span>
+            <strong>${escapeHtml(setting.nombre || setting.id)}</strong>
+            <small>${escapeHtml(setting.valor || "Sin valor")}</small>
+          </span>
+          <em>${escapeHtml(setting.estado)}</em>
+        </button>
+      `
+    )
+    .join("");
+}
+
+function fillSiteSettingForm(setting) {
+  const safeSetting = normalizeSiteSetting(setting);
+  selectedSiteSettingId = safeSetting.id;
+
+  if (siteSettingFormTitle) {
+    siteSettingFormTitle.textContent = safeSetting.nombre || "Dato de contacto";
+  }
+
+  Object.entries(defaultSiteSetting).forEach(([key]) => {
+    const field = siteSettingForm?.elements.namedItem(key);
+    if (field) {
+      field.value = safeSetting[key] ?? "";
+    }
+  });
+
+  renderSiteSettingList();
+}
+
+async function loadSiteSettings() {
+  if (!siteSettingList) {
+    return;
+  }
+
+  siteSettingList.innerHTML = '<p class="catalog-message">Cargando configuracion...</p>';
+
+  try {
+    siteSettings = (await apiRequest("/api/admin/configuracion-sitio")).map(normalizeSiteSetting);
+    selectedSiteSettingId = selectedSiteSettingId || siteSettings[0]?.id || "";
+    renderSiteSettingList();
+    fillSiteSettingForm(siteSettings.find((setting) => setting.id === selectedSiteSettingId) || defaultSiteSetting);
+  } catch (error) {
+    siteSettingList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function saveSiteSetting() {
+  const formData = new FormData(siteSettingForm);
+  const setting = normalizeSiteSetting(Object.fromEntries(formData.entries()));
+
+  if (!setting.id) {
+    setStatus("Selecciona un dato de configuracion para editar.", true);
+    return;
+  }
+
+  const saved = normalizeSiteSetting(
+    await apiRequest(`/api/admin/configuracion-sitio/${encodeURIComponent(setting.id)}`, {
+      method: "PUT",
+      body: JSON.stringify(setting),
+    })
+  );
+  const index = siteSettings.findIndex((entry) => entry.id === saved.id);
+
+  if (index >= 0) {
+    siteSettings[index] = saved;
+  } else {
+    siteSettings.push(saved);
+  }
+
+  fillSiteSettingForm(saved);
+  setStatus("Configuracion guardada.");
+}
+
 function renderAuditEvents() {
   if (auditCount) {
     auditCount.textContent = `${auditEvents.length} ${auditEvents.length === 1 ? "evento" : "eventos"}`;
@@ -3484,6 +3609,7 @@ loadInventoryButton?.addEventListener("click", loadInventory);
 loadSuppliersButton?.addEventListener("click", loadSuppliers);
 loadRenewalsButton?.addEventListener("click", loadRenewals);
 loadTemplatesButton?.addEventListener("click", loadTemplates);
+loadSiteSettingsButton?.addEventListener("click", loadSiteSettings);
 loadAuditButton?.addEventListener("click", loadAuditEvents);
 
 manualSaleProductSelect?.addEventListener("change", () => {
@@ -3660,6 +3786,27 @@ templateForm?.addEventListener("submit", async (event) => {
 
   try {
     await saveTemplate();
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
+siteSettingList?.addEventListener("click", (event) => {
+  const item = event.target.closest("[data-site-setting-id]");
+
+  if (!item) {
+    return;
+  }
+
+  const setting = siteSettings.find((entry) => entry.id === item.dataset.siteSettingId);
+  fillSiteSettingForm(setting || defaultSiteSetting);
+});
+
+siteSettingForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  try {
+    await saveSiteSetting();
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -4179,5 +4326,6 @@ loadSuppliers();
 loadRenewals();
 loadPaymentMethods();
 loadTemplates();
+loadSiteSettings();
 loadAuditEvents();
 setAdminView(getInitialAdminView(), false);

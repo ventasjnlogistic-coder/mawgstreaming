@@ -4,6 +4,7 @@ const INVENTORY_SHEET_NAME = "InventarioCuentas";
 const RENEWALS_SHEET_NAME = "Renovaciones";
 const PAYMENT_METHODS_SHEET_NAME = "MetodosPago";
 const MESSAGE_TEMPLATES_SHEET_NAME = "PlantillasMensajes";
+const SITE_SETTINGS_SHEET_NAME = "ConfiguracionSitio";
 const ADMIN_USERS_SHEET_NAME = "UsuariosAdmin";
 const PROVIDERS_SHEET_NAME = "Proveedores";
 const PROVIDER_PURCHASES_SHEET_NAME = "ComprasProveedor";
@@ -110,6 +111,7 @@ const RENEWAL_HEADERS = [
 const RENEWAL_STATUSES = ["pendiente_aviso", "avisado", "comprobante_recibido", "pagado", "renovado", "vencido", "cancelado"];
 const PAYMENT_METHOD_HEADERS = ["id", "nombre", "tipo", "titular", "numero", "cci", "banco", "qr_imagen", "instrucciones", "estado", "orden"];
 const MESSAGE_TEMPLATE_HEADERS = ["id", "nombre", "asunto", "contenido", "estado", "orden"];
+const SITE_SETTING_HEADERS = ["id", "nombre", "valor", "tipo", "estado", "orden"];
 const ADMIN_USER_HEADERS = ["usuario", "nombre", "rol", "password", "estado", "permisos"];
 const PROVIDER_HEADERS = ["proveedor_id", "nombre", "contacto", "producto_principal", "costo_referencial", "estado", "notas", "creado_en", "actualizado_en"];
 const PROVIDER_PURCHASE_HEADERS = [
@@ -147,6 +149,16 @@ const DEFAULT_MESSAGE_TEMPLATES = [
   ["actualizacion_datos", "Actualizacion de datos", "Actualizacion de credenciales", ":alerta::megafono: MAWG Streaming te informa: :check::pin_marcador:\n\n:check: ACTUALIZACION DE DATOS :check: | {{producto_nombre}}\n\n:laptop: CORREO: {{cuenta_usuario}}\n:candado: CONTRASENA: {{cuenta_clave}}\n\n:perfil_hombre: PERFIL: {{perfil_nombre}}\n:pin_personal: PIN: {{pin}}\n:calendario: FECHA DE RENOVACION: {{vencimiento_formateado}}", "activo", 4],
   ["confirmacion_pago", "Confirmacion de pago", "Pago confirmado", "Hola {{cliente_nombre}}, confirmamos el pago de {{producto_nombre}}. Estamos preparando la entrega.", "activo", 5],
   ["reclamo", "Reclamo proveedor", "Revision de cuenta", "Hola {{proveedor}}, necesitamos revisar la cuenta {{cuenta_usuario}} del producto {{producto_nombre}}.", "activo", 6],
+];
+const DEFAULT_SITE_SETTINGS = [
+  ["ventas_whatsapp", "WhatsApp ventas", "51921217484", "telefono", "activo", 1],
+  ["ventas_mensaje", "Mensaje ventas", "Hola, quiero consultar productos disponibles", "texto", "activo", 2],
+  ["soporte_whatsapp", "WhatsApp soporte", "51921217484", "telefono", "activo", 3],
+  ["soporte_mensaje", "Mensaje soporte", "Hola, necesito soporte con mi cuenta", "texto", "activo", 4],
+  ["horario_titulo", "Titulo horario", "Horario de atencion", "texto", "activo", 5],
+  ["horario_linea_1", "Horario linea 1", "Lunes a sabado: 9:00 a.m. - 10:00 p.m.", "texto", "activo", 6],
+  ["horario_linea_2", "Horario linea 2", "Domingos y feriados: atencion por disponibilidad", "texto", "activo", 7],
+  ["horario_nota", "Nota de horario", "Los pedidos y renovaciones se atienden por orden de llegada.", "texto", "activo", 8],
 ];
 const DEFAULT_ADMIN_USERS = [
   ["admin", "Administrador", "admin", "cambia-esta-contrasena", "activo", "*"],
@@ -284,6 +296,14 @@ function doPost(e) {
       return jsonResponse({ ok: true, template: updateMessageTemplate_(payload.id, payload.template || {}) });
     }
 
+    if (action === "sitesettings.list") {
+      return jsonResponse({ ok: true, site_settings: listSiteSettings_() });
+    }
+
+    if (action === "sitesettings.update") {
+      return jsonResponse({ ok: true, site_setting: updateSiteSetting_(payload.id, payload.setting || {}) });
+    }
+
     if (action === "providers.list") {
       return jsonResponse({ ok: true, providers: listProviders_() });
     }
@@ -375,6 +395,14 @@ function getMessageTemplatesSheet_() {
   return sheet;
 }
 
+function getSiteSettingsSheet_() {
+  const spreadsheet = getSpreadsheet_();
+  const sheet = spreadsheet.getSheetByName(SITE_SETTINGS_SHEET_NAME) || spreadsheet.insertSheet(SITE_SETTINGS_SHEET_NAME);
+  ensureSpecificHeaders_(sheet, SITE_SETTING_HEADERS);
+  seedDefaultSiteSettings_(sheet);
+  return sheet;
+}
+
 function getAdminUsersSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(ADMIN_USERS_SHEET_NAME) || spreadsheet.insertSheet(ADMIN_USERS_SHEET_NAME);
@@ -428,6 +456,15 @@ function crearHojaPlantillasMensajes() {
   return {
     success: true,
     mensaje: "Hoja PlantillasMensajes creada o actualizada correctamente.",
+    filas: Math.max(sheet.getLastRow() - 1, 0),
+  };
+}
+
+function crearHojaConfiguracionSitio() {
+  const sheet = getSiteSettingsSheet_();
+  return {
+    success: true,
+    mensaje: "Hoja ConfiguracionSitio creada o actualizada correctamente.",
     filas: Math.max(sheet.getLastRow() - 1, 0),
   };
 }
@@ -1112,6 +1149,101 @@ function validateMessageTemplate_(template) {
 
   if (!template.contenido) {
     throw new Error("El contenido de la plantilla es obligatorio.");
+  }
+}
+
+function seedDefaultSiteSettings_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const existingIds = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, 1).getValues().map(function (row) {
+        return String(row[0] || "").trim();
+      })
+    : [];
+  const missingRows = DEFAULT_SITE_SETTINGS.filter(function (row) {
+    return existingIds.indexOf(String(row[0] || "").trim()) < 0;
+  });
+
+  if (missingRows.length === 0) {
+    return;
+  }
+
+  sheet.getRange(sheet.getLastRow() + 1, 1, missingRows.length, SITE_SETTING_HEADERS.length).setValues(missingRows);
+}
+
+function listSiteSettings_() {
+  const sheet = getSiteSettingsSheet_();
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow < 2) {
+    return [];
+  }
+
+  return sheet
+    .getRange(2, 1, lastRow - 1, SITE_SETTING_HEADERS.length)
+    .getValues()
+    .filter(function (row) {
+      return row.some(function (value) {
+        return value !== "";
+      });
+    })
+    .map(rowToSiteSetting_)
+    .sort(function (a, b) {
+      return Number(a.orden || 999) - Number(b.orden || 999);
+    });
+}
+
+function updateSiteSetting_(id, setting) {
+  const sheet = getSiteSettingsSheet_();
+  const normalized = normalizeSiteSetting_(Object.assign({}, setting, { id: setting.id || id }));
+  const row = findRowById_(sheet, id);
+
+  validateSiteSetting_(normalized);
+
+  if (row > 0) {
+    sheet.getRange(row, 1, 1, SITE_SETTING_HEADERS.length).setValues([siteSettingToRow_(normalized)]);
+  } else {
+    sheet.appendRow(siteSettingToRow_(normalized));
+  }
+
+  return normalized;
+}
+
+function rowToSiteSetting_(row) {
+  return SITE_SETTING_HEADERS.reduce(function (setting, key, index) {
+    const value = row[index];
+    setting[key] = key === "orden" && value !== "" && !isNaN(Number(value)) ? Number(value) : value || "";
+    return setting;
+  }, {});
+}
+
+function siteSettingToRow_(setting) {
+  return SITE_SETTING_HEADERS.map(function (key) {
+    return setting[key] === undefined || setting[key] === null ? "" : setting[key];
+  });
+}
+
+function normalizeSiteSetting_(setting) {
+  const nombre = String(setting.nombre || setting.name || "").trim();
+  const id = String(setting.id || slugify_(nombre)).trim();
+  const orden = Number(setting.orden);
+
+  return {
+    id: id,
+    nombre: nombre,
+    valor: String(setting.valor || "").trim(),
+    tipo: String(setting.tipo || "texto").trim(),
+    estado: setting.estado === "inactivo" ? "inactivo" : "activo",
+    orden: isNaN(orden) ? 999 : orden,
+  };
+}
+
+function validateSiteSetting_(setting) {
+  if (!setting.id) {
+    throw new Error("El ID de configuracion es obligatorio.");
+  }
+
+  if (!setting.nombre) {
+    throw new Error("El nombre de configuracion es obligatorio.");
   }
 }
 

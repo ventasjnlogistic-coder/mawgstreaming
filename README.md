@@ -160,6 +160,14 @@ id, nombre, tipo, titular, numero, cci, banco, qr_imagen, instrucciones, estado,
 
 Usa `estado=activo` para mostrarlo en tienda/admin, `estado=inactivo` para ocultarlo, y `orden` para controlar el orden. `qr_imagen` acepta un enlace de Drive y se normaliza como imagen de vista previa.
 
+La plantilla crea `ConfiguracionSitio` para administrar contactos de ventas, soporte y horarios de atencion desde la web. Encabezados:
+
+```text
+id, nombre, valor, tipo, estado, orden
+```
+
+Claves iniciales: `ventas_whatsapp`, `ventas_mensaje`, `soporte_whatsapp`, `soporte_mensaje`, `horario_titulo`, `horario_linea_1`, `horario_linea_2`, `horario_nota`.
+
 La plantilla crea `UsuariosAdmin` para login y roles administrables desde Google Sheets. Encabezados:
 
 ```text
@@ -280,6 +288,7 @@ npm start
 - `Productos`: mantenimiento del catalogo publicado, incluyendo componentes para combos.
 - `Inventario`: mantenimiento de cuentas reales, proveedor, costo, credenciales, estado y vencimiento. Incluye filtro `Vence pronto`, alerta visual por vencimiento y boton `Avisar vencimiento` para preparar el mensaje por WhatsApp.
 - `Renovaciones`: historial de pagos recurrentes, cuentas por vencer, comprobantes y confirmacion de nueva vigencia.
+- `Configuracion`: mantenimiento de contacto de ventas, contacto de soporte y horario publicado en la tienda.
 - `Exportar`: vista previa y respaldo JSON para desarrollo/local.
 
 ## Troubleshooting Apps Script

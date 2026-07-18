@@ -12,8 +12,15 @@ const proofForm = document.querySelector("#proofForm");
 const proofStatus = document.querySelector("#proofStatus");
 const proofMessage = document.querySelector("#proofMessage");
 const storefrontStatus = document.querySelector("#storefrontStatus");
+const salesContactLink = document.querySelector("#salesContactLink");
+const supportContactLink = document.querySelector("#supportContactLink");
+const orderWhatsappLink = document.querySelector("#orderWhatsappLink");
+const scheduleTitle = document.querySelector("#scheduleTitle");
+const scheduleLine1 = document.querySelector("#scheduleLine1");
+const scheduleLine2 = document.querySelector("#scheduleLine2");
+const scheduleNote = document.querySelector("#scheduleNote");
 
-const whatsappNumber = "51921217484";
+let whatsappNumber = "51921217484";
 let selectedProduct = "";
 let selectedProductId = "";
 let selectedPrice = "";
@@ -352,6 +359,81 @@ async function loadPaymentMethods() {
   }
 }
 
+function normalizeSiteSetting(setting) {
+  return {
+    id: String(setting.id || "").trim(),
+    valor: String(setting.valor || "").trim(),
+    estado: setting.estado === "inactivo" ? "inactivo" : "activo",
+  };
+}
+
+function settingsToMap(settings) {
+  return settings.reduce((map, setting) => {
+    if (setting.id && setting.estado !== "inactivo") {
+      map[setting.id] = setting.valor;
+    }
+    return map;
+  }, {});
+}
+
+function buildWhatsAppHref(number, message = "") {
+  const normalizedNumber = String(number || "").replace(/\D/g, "");
+  const params = new URLSearchParams();
+
+  if (message) {
+    params.set("text", message);
+  }
+
+  return normalizedNumber ? `https://wa.me/${normalizedNumber}${params.toString() ? `?${params.toString()}` : ""}` : "#";
+}
+
+function renderSiteSettings(settings) {
+  const map = settingsToMap(settings.map(normalizeSiteSetting));
+  const salesNumber = map.ventas_whatsapp || whatsappNumber;
+  const salesMessage = map.ventas_mensaje || "Hola, quiero consultar productos disponibles";
+  const supportNumber = map.soporte_whatsapp || salesNumber;
+  const supportMessage = map.soporte_mensaje || "Hola, necesito soporte con mi cuenta";
+
+  whatsappNumber = String(salesNumber || whatsappNumber).replace(/\D/g, "") || whatsappNumber;
+
+  if (salesContactLink) {
+    salesContactLink.href = buildWhatsAppHref(salesNumber, salesMessage);
+  }
+
+  if (supportContactLink) {
+    supportContactLink.href = buildWhatsAppHref(supportNumber, supportMessage);
+  }
+
+  if (orderWhatsappLink) {
+    orderWhatsappLink.href = buildWhatsAppHref(salesNumber);
+  }
+
+  if (scheduleTitle && map.horario_titulo) {
+    scheduleTitle.textContent = map.horario_titulo;
+  }
+
+  if (scheduleLine1 && map.horario_linea_1) {
+    scheduleLine1.textContent = map.horario_linea_1;
+  }
+
+  if (scheduleLine2 && map.horario_linea_2) {
+    scheduleLine2.textContent = map.horario_linea_2;
+  }
+
+  if (scheduleNote && map.horario_nota) {
+    scheduleNote.textContent = map.horario_nota;
+  }
+}
+
+async function loadSiteSettings() {
+  try {
+    const settings = await apiRequest("/api/configuracion-sitio");
+    renderSiteSettings(Array.isArray(settings) ? settings : []);
+  } catch {
+    renderSiteSettings([]);
+  }
+}
+
 function setPaymentMethod(method) {
   selectedMethod = method;
 
@@ -543,4 +625,5 @@ document.addEventListener("keydown", (event) => {
 });
 
 loadPaymentMethods();
+loadSiteSettings();
 loadProducts();

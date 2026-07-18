@@ -32,6 +32,7 @@
         <a href="#proveedores" data-admin-target="proveedores">Proveedores</a>
         <a href="#renovaciones" data-admin-target="renovaciones">Renovaciones</a>
         <a href="#plantillas" data-admin-target="plantillas">Plantillas</a>
+        <a href="#configuracion" data-admin-target="configuracion">Configuracion</a>
         <a href="#auditoria" data-admin-target="auditoria">Auditoria</a>
         <a href="#exportar" data-admin-target="exportar">Exportar</a>
         <button class="nav-logout" type="button" id="logoutButton">Cerrar sesion</button>
@@ -965,6 +966,71 @@
             </p>
             <div class="form-actions">
               <button class="button button-primary" type="submit">Guardar plantilla</button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <section class="admin-layout admin-view" id="configuracion" data-admin-view="configuracion" hidden>
+        <aside class="admin-panel product-list-panel" aria-label="Configuracion de contacto">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Tienda</p>
+              <h2>Contacto y horarios</h2>
+            </div>
+            <span class="status-pill" id="siteSettingCount">0 datos</span>
+          </div>
+          <div class="admin-product-list" id="adminSiteSettingList"></div>
+        </aside>
+
+        <section class="admin-panel editor-panel" aria-labelledby="siteSettingFormTitle">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Mantenimiento</p>
+              <h2 id="siteSettingFormTitle">Dato de contacto</h2>
+            </div>
+            <button class="button button-secondary" type="button" id="loadSiteSettingsButton">
+              Recargar
+            </button>
+          </div>
+          <form class="product-form" id="siteSettingForm">
+            <div class="form-grid">
+              <label>
+                ID
+                <input name="id" type="text" readonly />
+              </label>
+              <label>
+                Nombre
+                <input name="nombre" type="text" required />
+              </label>
+              <label>
+                Tipo
+                <select name="tipo">
+                  <option value="texto">Texto</option>
+                  <option value="telefono">Telefono</option>
+                </select>
+              </label>
+              <label>
+                Estado
+                <select name="estado">
+                  <option value="activo">Activo</option>
+                  <option value="inactivo">Inactivo</option>
+                </select>
+              </label>
+              <label>
+                Orden
+                <input name="orden" type="number" min="1" step="1" />
+              </label>
+              <label class="form-wide">
+                Valor
+                <textarea name="valor" rows="4" required></textarea>
+              </label>
+            </div>
+            <p class="local-file-note">
+              Usa telefonos en formato internacional para WhatsApp, por ejemplo 51921217484.
+            </p>
+            <div class="form-actions">
+              <button class="button button-primary" type="submit">Guardar configuracion</button>
             </div>
           </form>
         </section>

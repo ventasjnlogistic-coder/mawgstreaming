@@ -14,6 +14,7 @@ const { createInventoryStore } = require("./src/services/inventory");
 const { createRenewalStore } = require("./src/services/renewals");
 const { createPaymentMethodStore } = require("./src/services/paymentMethods");
 const { createMessageTemplateStore } = require("./src/services/messageTemplates");
+const { createSiteSettingStore } = require("./src/services/siteSettings");
 const { createUserStore } = require("./src/services/users");
 const { createSupplierStore } = require("./src/services/suppliers");
 const { createAuditStore } = require("./src/services/audit");
@@ -39,6 +40,10 @@ const {
   normalizeMessageTemplate,
   validateMessageTemplate,
 } = require("./src/services/messageTemplates/validation");
+const {
+  normalizeSiteSetting,
+  validateSiteSetting,
+} = require("./src/services/siteSettings/validation");
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -53,6 +58,7 @@ const inventoryStore = createInventoryStore();
 const renewalStore = createRenewalStore();
 const paymentMethodStore = createPaymentMethodStore();
 const messageTemplateStore = createMessageTemplateStore();
+const siteSettingStore = createSiteSettingStore();
 const userStore = createUserStore();
 const supplierStore = createSupplierStore();
 const auditStore = createAuditStore();
@@ -1189,6 +1195,15 @@ app.get("/api/metodos-pago", async (_req, res) => {
   }
 });
 
+app.get("/api/configuracion-sitio", async (_req, res) => {
+  try {
+    res.json(await siteSettingStore.listSettings());
+  } catch (error) {
+    logUnexpectedError(error);
+    res.status(500).json({ error: "No se pudo cargar la configuracion del sitio." });
+  }
+});
+
 app.get("/api/health/config", (_req, res) => {
   const appsScriptUrl = String(process.env.APPS_SCRIPT_CATALOG_URL || "").trim();
   const adminToken = String(process.env.APPS_SCRIPT_ADMIN_TOKEN || "").trim();
@@ -1264,6 +1279,40 @@ app.put("/api/admin/plantillas/:id", requirePermission("plantillas"), async (req
   } catch (error) {
     logUnexpectedError(error);
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo actualizar la plantilla." });
+  }
+});
+
+app.get("/api/admin/configuracion-sitio", requireAuth, async (_req, res) => {
+  try {
+    res.json(await siteSettingStore.listSettings());
+  } catch (error) {
+    logUnexpectedError(error);
+    res.status(500).json({ error: "No se pudo cargar la configuracion del sitio." });
+  }
+});
+
+app.put("/api/admin/configuracion-sitio/:id", requirePermission("plantillas"), async (req, res) => {
+  try {
+    const setting = normalizeSiteSetting({ ...(req.body || {}), id: req.body?.id || req.params.id });
+    const validationError = validateSiteSetting(setting);
+
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+
+    const saved = await siteSettingStore.updateSetting(req.params.id, setting);
+    await audit(req, {
+      entidad: "configuracion_sitio",
+      entidad_id: saved.id,
+      accion: "actualizar_configuracion",
+      despues: saved,
+      detalles: { nombre: saved.nombre },
+    });
+    res.json(saved);
+  } catch (error) {
+    logUnexpectedError(error);
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo actualizar la configuracion." });
   }
 });
 
