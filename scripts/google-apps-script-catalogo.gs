@@ -157,8 +157,11 @@ const DEFAULT_SITE_SETTINGS = [
   ["soporte_mensaje", "Mensaje soporte", "Hola, necesito soporte con mi cuenta", "texto", "activo", 4],
   ["horario_titulo", "Titulo horario", "Horario de atencion", "texto", "activo", 5],
   ["horario_linea_1", "Horario linea 1", "Lunes a sabado: 9:00 a.m. - 10:00 p.m.", "texto", "activo", 6],
-  ["horario_linea_2", "Horario linea 2", "Domingos y feriados: atencion por disponibilidad", "texto", "activo", 7],
-  ["horario_nota", "Nota de horario", "Los pedidos y renovaciones se atienden por orden de llegada.", "texto", "activo", 8],
+  ["horario_linea_1_nombre", "Nombre horario linea 1", "Atencion", "texto", "activo", 7],
+  ["horario_linea_2", "Horario linea 2", "Domingos y feriados: atencion por disponibilidad", "texto", "activo", 8],
+  ["horario_linea_2_nombre", "Nombre horario linea 2", "Especial", "texto", "activo", 9],
+  ["horario_nota", "Nota de horario", "Los pedidos y renovaciones se atienden por orden de llegada.", "texto", "activo", 10],
+  ["horario_nota_nombre", "Nombre nota horario", "Nota", "texto", "activo", 11],
 ];
 const DEFAULT_ADMIN_USERS = [
   ["admin", "Administrador", "admin", "cambia-esta-contrasena", "activo", "*"],

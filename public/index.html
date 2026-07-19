@@ -212,7 +212,7 @@
             <span class="contact-icon">VT</span>
             <h3>Ventas</h3>
             <p>Consultas de productos, combos, precios y disponibilidad antes de comprar.</p>
-            <a class="button button-primary" id="salesContactLink" href="https://wa.me/51921217484?text=Hola%2C%20quiero%20consultar%20productos%20disponibles" target="_blank" rel="noreferrer">
+            <a class="button button-primary" id="salesContactLink" href="https://api.whatsapp.com/send?phone=51921217484&text=Hola%2C%20quiero%20consultar%20productos%20disponibles" target="_blank" rel="noreferrer">
               Escribir a ventas
             </a>
           </article>
@@ -220,7 +220,7 @@
             <span class="contact-icon">SP</span>
             <h3>Soporte</h3>
             <p>Ayuda con accesos, renovaciones, datos de entrega o incidencias del servicio.</p>
-            <a class="button button-secondary" id="supportContactLink" href="https://wa.me/51921217484?text=Hola%2C%20necesito%20soporte%20con%20mi%20cuenta" target="_blank" rel="noreferrer">
+            <a class="button button-secondary" id="supportContactLink" href="https://api.whatsapp.com/send?phone=51921217484&text=Hola%2C%20necesito%20soporte%20con%20mi%20cuenta" target="_blank" rel="noreferrer">
               Solicitar soporte
             </a>
           </article>
@@ -229,15 +229,15 @@
             <h3 id="scheduleTitle">Horario de atencion</h3>
             <dl class="schedule-list">
               <div>
-                <dt>Atencion</dt>
+                <dt id="scheduleLine1Title">Atencion</dt>
                 <dd id="scheduleLine1">Lunes a sabado: 9:00 a.m. - 10:00 p.m.</dd>
               </div>
               <div>
-                <dt>Especial</dt>
+                <dt id="scheduleLine2Title">Especial</dt>
                 <dd id="scheduleLine2">Domingos y feriados: atencion por disponibilidad</dd>
               </div>
               <div>
-                <dt>Nota</dt>
+                <dt id="scheduleNoteTitle">Nota</dt>
                 <dd id="scheduleNote">Los pedidos y renovaciones se atienden por orden de llegada.</dd>
               </div>
             </dl>
@@ -255,7 +255,7 @@
               stock, precio final y tiempo de entrega.
             </p>
           </div>
-          <a class="button button-primary" id="orderWhatsappLink" href="https://wa.me/51921217484" target="_blank" rel="noreferrer">
+          <a class="button button-primary" id="orderWhatsappLink" href="https://api.whatsapp.com/send?phone=51921217484" target="_blank" rel="noreferrer">
             Comprar por WhatsApp
           </a>
         </div>

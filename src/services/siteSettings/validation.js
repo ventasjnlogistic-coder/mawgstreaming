@@ -48,12 +48,28 @@ const DEFAULT_SITE_SETTINGS = [
     orden: 6,
   },
   {
+    id: "horario_linea_1_nombre",
+    nombre: "Nombre horario linea 1",
+    valor: "Atencion",
+    tipo: "texto",
+    estado: "activo",
+    orden: 7,
+  },
+  {
     id: "horario_linea_2",
     nombre: "Horario linea 2",
     valor: "Domingos y feriados: atencion por disponibilidad",
     tipo: "texto",
     estado: "activo",
-    orden: 7,
+    orden: 8,
+  },
+  {
+    id: "horario_linea_2_nombre",
+    nombre: "Nombre horario linea 2",
+    valor: "Especial",
+    tipo: "texto",
+    estado: "activo",
+    orden: 9,
   },
   {
     id: "horario_nota",
@@ -61,7 +77,15 @@ const DEFAULT_SITE_SETTINGS = [
     valor: "Los pedidos y renovaciones se atienden por orden de llegada.",
     tipo: "texto",
     estado: "activo",
-    orden: 8,
+    orden: 10,
+  },
+  {
+    id: "horario_nota_nombre",
+    nombre: "Nombre nota horario",
+    valor: "Nota",
+    tipo: "texto",
+    estado: "activo",
+    orden: 11,
   },
 ];
 

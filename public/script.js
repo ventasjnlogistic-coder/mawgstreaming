@@ -16,8 +16,11 @@ const salesContactLink = document.querySelector("#salesContactLink");
 const supportContactLink = document.querySelector("#supportContactLink");
 const orderWhatsappLink = document.querySelector("#orderWhatsappLink");
 const scheduleTitle = document.querySelector("#scheduleTitle");
+const scheduleLine1Title = document.querySelector("#scheduleLine1Title");
 const scheduleLine1 = document.querySelector("#scheduleLine1");
+const scheduleLine2Title = document.querySelector("#scheduleLine2Title");
 const scheduleLine2 = document.querySelector("#scheduleLine2");
+const scheduleNoteTitle = document.querySelector("#scheduleNoteTitle");
 const scheduleNote = document.querySelector("#scheduleNote");
 
 let whatsappNumber = "51921217484";
@@ -31,6 +34,25 @@ let paymentLabels = {
   yape: "Yape",
   plin: "Plin",
   transferencia: "Transferencia bancaria",
+};
+
+const whatsappEmojiMap = {
+  ":estrella:": String.fromCodePoint(0x2b50),
+  ":tv:": String.fromCodePoint(0x1f4fa),
+  ":correo:": String.fromCodePoint(0x1f4e7),
+  ":llave:": String.fromCodePoint(0x1f511),
+  ":perfil:": String.fromCodePoint(0x1f464),
+  ":candado:": String.fromCodePoint(0x1f510),
+  ":link:": String.fromCodePoint(0x1f517),
+  ":calendario:": String.fromCodePoint(0x1f5d3, 0xfe0f),
+  ":alerta:": String.fromCodePoint(0x26a0, 0xfe0f),
+  ":megafono:": String.fromCodePoint(0x1f4e2),
+  ":pin_marcador:": String.fromCodePoint(0x1f4cc),
+  ":laptop:": String.fromCodePoint(0x1f4bb),
+  ":perfil_hombre:": String.fromCodePoint(0x1f9d4),
+  ":pin_personal:": String.fromCodePoint(0x1fac6),
+  ":telefono:": String.fromCodePoint(0x1f4f2),
+  ":check:": String.fromCodePoint(0x2705),
 };
 
 const focusableSelector = [
@@ -70,6 +92,13 @@ function formatRichText(value) {
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(?!\s)([^*\n]+?)(?<!\s)\*/g, "<strong>$1</strong>")
     .replace(/\n/g, "<br>");
+}
+
+function renderWhatsAppEmojis(message) {
+  return Object.entries(whatsappEmojiMap).reduce(
+    (current, [placeholder, emoji]) => current.split(placeholder).join(emoji),
+    String(message || "")
+  );
 }
 
 function normalizePaymentMethod(method) {
@@ -239,7 +268,7 @@ function buildWhatsAppMessage() {
 }
 
 function openWhatsApp(message) {
-  window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+  window.open(buildWhatsAppUrl(whatsappNumber, message), "_blank", "noopener,noreferrer");
 }
 
 function renderPaymentPanel(method) {
@@ -376,15 +405,14 @@ function settingsToMap(settings) {
   }, {});
 }
 
-function buildWhatsAppHref(number, message = "") {
+function buildWhatsAppUrl(number, message = "") {
   const normalizedNumber = String(number || "").replace(/\D/g, "");
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({
+    phone: normalizedNumber,
+    text: renderWhatsAppEmojis(message),
+  });
 
-  if (message) {
-    params.set("text", message);
-  }
-
-  return normalizedNumber ? `https://wa.me/${normalizedNumber}${params.toString() ? `?${params.toString()}` : ""}` : "#";
+  return normalizedNumber ? `https://api.whatsapp.com/send?${params.toString()}` : "#";
 }
 
 function renderSiteSettings(settings) {
@@ -397,31 +425,43 @@ function renderSiteSettings(settings) {
   whatsappNumber = String(salesNumber || whatsappNumber).replace(/\D/g, "") || whatsappNumber;
 
   if (salesContactLink) {
-    salesContactLink.href = buildWhatsAppHref(salesNumber, salesMessage);
+    salesContactLink.href = buildWhatsAppUrl(salesNumber, salesMessage);
   }
 
   if (supportContactLink) {
-    supportContactLink.href = buildWhatsAppHref(supportNumber, supportMessage);
+    supportContactLink.href = buildWhatsAppUrl(supportNumber, supportMessage);
   }
 
   if (orderWhatsappLink) {
-    orderWhatsappLink.href = buildWhatsAppHref(salesNumber);
+    orderWhatsappLink.href = buildWhatsAppUrl(salesNumber, salesMessage);
   }
 
   if (scheduleTitle && map.horario_titulo) {
     scheduleTitle.textContent = map.horario_titulo;
   }
 
+  if (scheduleLine1Title && map.horario_linea_1_nombre) {
+    scheduleLine1Title.textContent = map.horario_linea_1_nombre;
+  }
+
   if (scheduleLine1 && map.horario_linea_1) {
-    scheduleLine1.textContent = map.horario_linea_1;
+    scheduleLine1.innerHTML = formatRichText(map.horario_linea_1);
+  }
+
+  if (scheduleLine2Title && map.horario_linea_2_nombre) {
+    scheduleLine2Title.textContent = map.horario_linea_2_nombre;
   }
 
   if (scheduleLine2 && map.horario_linea_2) {
-    scheduleLine2.textContent = map.horario_linea_2;
+    scheduleLine2.innerHTML = formatRichText(map.horario_linea_2);
+  }
+
+  if (scheduleNoteTitle && map.horario_nota_nombre) {
+    scheduleNoteTitle.textContent = map.horario_nota_nombre;
   }
 
   if (scheduleNote && map.horario_nota) {
-    scheduleNote.textContent = map.horario_nota;
+    scheduleNote.innerHTML = formatRichText(map.horario_nota);
   }
 }
 

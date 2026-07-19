@@ -166,7 +166,9 @@ La plantilla crea `ConfiguracionSitio` para administrar contactos de ventas, sop
 id, nombre, valor, tipo, estado, orden
 ```
 
-Claves iniciales: `ventas_whatsapp`, `ventas_mensaje`, `soporte_whatsapp`, `soporte_mensaje`, `horario_titulo`, `horario_linea_1`, `horario_linea_2`, `horario_nota`.
+Claves iniciales: `ventas_whatsapp`, `ventas_mensaje`, `soporte_whatsapp`, `soporte_mensaje`, `horario_titulo`, `horario_linea_1`, `horario_linea_1_nombre`, `horario_linea_2`, `horario_linea_2_nombre`, `horario_nota`, `horario_nota_nombre`.
+
+En `ventas_mensaje` y `soporte_mensaje` puedes usar placeholders de emoticones como `:telefono:`, `:check:`, `:alerta:` o `:estrella:`. En los textos de horario puedes usar `**negrita**` y saltos de linea.
 
 La plantilla crea `UsuariosAdmin` para login y roles administrables desde Google Sheets. Encabezados:
 

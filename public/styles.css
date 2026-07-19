@@ -715,6 +715,17 @@ h3 {
 .schedule-list dd {
   margin: 0.2rem 0 0;
   color: rgba(222, 242, 241, 0.84);
+  text-align: justify;
+  text-wrap: pretty;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+  line-height: 1.65;
+}
+
+.schedule-list dd strong {
+  color: inherit;
+  font-weight: 900;
 }
 
 .order-card {
