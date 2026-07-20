@@ -1673,13 +1673,14 @@ function openWhatsAppLink(href) {
     return false;
   }
 
-  const opened = window.open(href, "_blank", "noopener,noreferrer");
+  const opened = window.open(href, "_blank");
 
-  if (!opened) {
-    window.location.href = href;
+  if (opened) {
+    opened.opener = null;
+    return true;
   }
 
-  return true;
+  return false;
 }
 
 function renderAssignmentFinancials(assignment) {

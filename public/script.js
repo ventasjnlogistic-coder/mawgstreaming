@@ -268,7 +268,11 @@ function buildWhatsAppMessage() {
 }
 
 function openWhatsApp(message) {
-  window.open(buildWhatsAppUrl(whatsappNumber, message), "_blank", "noopener,noreferrer");
+  const opened = window.open(buildWhatsAppUrl(whatsappNumber, message), "_blank");
+
+  if (opened) {
+    opened.opener = null;
+  }
 }
 
 function renderPaymentPanel(method) {
