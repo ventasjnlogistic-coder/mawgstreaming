@@ -1,6 +1,27 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
+const OPEN_RENEWAL_STATUSES = ["pendiente_aviso", "avisado", "comprobante_recibido", "pagado"];
+
+function isOpenRenewalStatus(status) {
+  return OPEN_RENEWAL_STATUSES.includes(String(status || "").trim());
+}
+
+function hasOpenRenewalDuplicate(renewals, renewal, currentRenewalId = "") {
+  const inventoryId = String(renewal.inventario_id || "").trim();
+
+  if (!inventoryId || !isOpenRenewalStatus(renewal.estado)) {
+    return null;
+  }
+
+  return renewals.find(
+    (entry) =>
+      String(entry.renovacion_id || "").trim() !== String(currentRenewalId || "").trim() &&
+      String(entry.inventario_id || "").trim() === inventoryId &&
+      isOpenRenewalStatus(entry.estado)
+  );
+}
+
 class JsonRenewalStore {
   constructor(filePath) {
     this.filePath = path.resolve(filePath || "renovaciones.json");
@@ -45,6 +66,16 @@ class JsonRenewalStore {
         throw error;
       }
 
+      const duplicate = hasOpenRenewalDuplicate(renewals, renewal);
+
+      if (duplicate) {
+        const error = new Error(
+          `Ya existe una renovacion abierta para esta cuenta (${duplicate.renovacion_id}). Finaliza o cancela la renovacion existente antes de crear otra.`
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+
       renewals.push(renewal);
       await this.writeRenewals(renewals);
       return renewal;
@@ -67,6 +98,16 @@ class JsonRenewalStore {
         ...patch,
         renovacion_id: renewals[index].renovacion_id,
       };
+
+      const duplicate = hasOpenRenewalDuplicate(renewals, renewals[index], renewals[index].renovacion_id);
+
+      if (duplicate) {
+        const error = new Error(
+          `Ya existe una renovacion abierta para esta cuenta (${duplicate.renovacion_id}). Finaliza o cancela la renovacion existente antes de crear otra.`
+        );
+        error.statusCode = 409;
+        throw error;
+      }
 
       await this.writeRenewals(renewals);
       return renewals[index];

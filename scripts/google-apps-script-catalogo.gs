@@ -109,6 +109,7 @@ const RENEWAL_HEADERS = [
   "actualizado_en",
 ];
 const RENEWAL_STATUSES = ["pendiente_aviso", "avisado", "comprobante_recibido", "pagado", "renovado", "vencido", "cancelado"];
+const OPEN_RENEWAL_STATUSES = ["pendiente_aviso", "avisado", "comprobante_recibido", "pagado"];
 const PAYMENT_METHOD_HEADERS = ["id", "nombre", "tipo", "titular", "numero", "cci", "banco", "qr_imagen", "instrucciones", "estado", "orden"];
 const MESSAGE_TEMPLATE_HEADERS = ["id", "nombre", "asunto", "contenido", "estado", "orden"];
 const SITE_SETTING_HEADERS = ["id", "nombre", "valor", "tipo", "estado", "orden"];
@@ -372,6 +373,7 @@ function getInventorySheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(INVENTORY_SHEET_NAME) || spreadsheet.insertSheet(INVENTORY_SHEET_NAME);
   ensureSpecificHeaders_(sheet, INVENTORY_HEADERS);
+  ensureTextColumns_(sheet, INVENTORY_HEADERS, ["cuenta_clave", "pin"]);
   return sheet;
 }
 
@@ -534,6 +536,18 @@ function ensureSpecificHeaders_(sheet, headers) {
       sheet.getRange(1, index + 1).setValue(headers[index]);
     }
   }
+}
+
+function ensureTextColumns_(sheet, headers, columnNames) {
+  const maxRows = sheet.getMaxRows();
+
+  columnNames.forEach(function (name) {
+    const index = headers.indexOf(name);
+
+    if (index >= 0) {
+      sheet.getRange(1, index + 1, maxRows, 1).setNumberFormat("@");
+    }
+  });
 }
 
 function ensureColumnsByName_(sheet, headers) {
@@ -1693,7 +1707,7 @@ function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
   const assignmentDetails = itemPairs.map(function (pair, index) {
     var fechaVencimientoCliente = String(pair.request.fecha_vencimiento_cliente || pair.item.fecha_vencimiento_cliente || "").trim();
     var perfilNombre = pair.request.perfil_nombre || pair.item.perfil_nombre;
-    var pin = pair.request.pin || pair.item.pin;
+    var pin = pair.request.pin !== "" ? pair.request.pin : pair.item.pin;
     var pricing = assignmentPricing[index];
     var datosEntrega = [
       pair.item.cuenta_usuario,
@@ -1793,7 +1807,7 @@ function normalizeAssignmentRequests_(assignments) {
       producto_id: String(assignment.producto_id || "").trim(),
       inventario_id: String(assignment.inventario_id || "").trim(),
       perfil_nombre: String(assignment.perfil_nombre || "").trim(),
-      pin: String(assignment.pin || "").trim(),
+      pin: String(assignment.pin === undefined || assignment.pin === null ? "" : assignment.pin).trim(),
       precio_venta: assignment.precio_venta === undefined || assignment.precio_venta === null ? "" : assignment.precio_venta,
       costo_proveedor: assignment.costo_proveedor === undefined || assignment.costo_proveedor === null ? "" : assignment.costo_proveedor,
       fecha_vencimiento_cliente: String(assignment.fecha_vencimiento_cliente || "").trim(),
@@ -1917,7 +1931,7 @@ function allocateAssignmentPrices_(order, itemPairs, products) {
 
 function rowToInventoryItem_(row) {
   return INVENTORY_HEADERS.reduce(function (item, key, index) {
-    item[key] = row[index] || "";
+    item[key] = row[index] === undefined || row[index] === null ? "" : row[index];
     return item;
   }, {});
 }
@@ -1944,9 +1958,9 @@ function normalizeInventoryItem_(item) {
     referencia_compra: String(item.referencia_compra || "").trim(),
     url_producto: String(item.url_producto || "").trim(),
     cuenta_usuario: String(item.cuenta_usuario || "").trim(),
-    cuenta_clave: String(item.cuenta_clave || "").trim(),
-    perfil_nombre: String(item.perfil_nombre || "").trim(),
-    pin: String(item.pin || "").trim(),
+    cuenta_clave: String(item.cuenta_clave === undefined || item.cuenta_clave === null ? "" : item.cuenta_clave).trim(),
+    perfil_nombre: String(item.perfil_nombre === undefined || item.perfil_nombre === null ? "" : item.perfil_nombre).trim(),
+    pin: String(item.pin === undefined || item.pin === null ? "" : item.pin).trim(),
     estado: estado,
     estado_control: String(item.estado_control || "").trim(),
     pedido_id: String(item.pedido_id || "").trim(),
@@ -1990,6 +2004,7 @@ function createRenewal_(renewal) {
     throw new Error("Ya existe una renovacion con ese ID.");
   }
 
+  assertNoOpenRenewalDuplicate_(normalized, "");
   sheet.appendRow(renewalToRow_(normalized));
   return normalized;
 }
@@ -2005,8 +2020,41 @@ function updateRenewal_(id, renewal) {
   const current = rowToRenewal_(sheet.getRange(row, 1, 1, RENEWAL_HEADERS.length).getValues()[0]);
   const normalized = normalizeRenewal_(Object.assign({}, current, renewal, { renovacion_id: current.renovacion_id, actualizado_en: new Date().toISOString() }));
   validateRenewal_(normalized);
+  assertNoOpenRenewalDuplicate_(normalized, current.renovacion_id);
   sheet.getRange(row, 1, 1, RENEWAL_HEADERS.length).setValues([renewalToRow_(normalized)]);
   return normalized;
+}
+
+function isOpenRenewalStatus_(status) {
+  return OPEN_RENEWAL_STATUSES.indexOf(String(status || "").trim()) >= 0;
+}
+
+function assertNoOpenRenewalDuplicate_(renewal, currentRenewalId) {
+  if (!isOpenRenewalStatus_(renewal.estado)) {
+    return;
+  }
+
+  const inventoryId = String(renewal.inventario_id || "").trim();
+
+  if (!inventoryId) {
+    return;
+  }
+
+  const duplicate = listRenewals_().find(function (entry) {
+    return (
+      String(entry.renovacion_id || "").trim() !== String(currentRenewalId || "").trim() &&
+      String(entry.inventario_id || "").trim() === inventoryId &&
+      isOpenRenewalStatus_(entry.estado)
+    );
+  });
+
+  if (duplicate) {
+    throw new Error(
+      "Ya existe una renovacion abierta para esta cuenta (" +
+        duplicate.renovacion_id +
+        "). Finaliza o cancela la renovacion existente antes de crear otra."
+    );
+  }
 }
 
 function submitRenewalProof_(id, proof, proofDriveFolderId) {

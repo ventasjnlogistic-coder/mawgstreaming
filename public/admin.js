@@ -626,6 +626,9 @@ function normalizeInventoryItem(item = {}) {
     producto_nombre: String(item.producto_nombre || "").trim(),
     proveedor: String(item.proveedor || "").trim(),
     celular_proveedor: String(item.celular_proveedor || "").trim(),
+    cuenta_clave: String(item.cuenta_clave ?? "").trim(),
+    perfil_nombre: String(item.perfil_nombre ?? "").trim(),
+    pin: String(item.pin ?? "").trim(),
     referencia_compra: String(item.referencia_compra || "").trim(),
     url_producto: String(item.url_producto || "").trim(),
     estado_control: String(item.estado_control || "").trim(),
@@ -778,7 +781,8 @@ function formatPrice(price) {
     return "Consultar";
   }
 
-  return typeof price === "number" ? `S/ ${price}` : String(price);
+  const number = Number(price);
+  return Number.isFinite(number) ? `S/ ${formatNumberMaxDecimals(number)}` : String(price);
 }
 
 function formatDate(value) {
@@ -974,8 +978,21 @@ function toNumber(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function formatNumberMaxDecimals(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return "0";
+  }
+
+  return number.toLocaleString("es-PE", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 function formatReportMoney(value) {
-  return `S/ ${toNumber(value).toFixed(2)}`;
+  return `S/ ${formatNumberMaxDecimals(toNumber(value))}`;
 }
 
 function isCurrentMonth(value) {
@@ -1535,7 +1552,7 @@ function resolveDeliveryAccount(order, assignment = {}, inventoryItem = null) {
     cuenta_usuario: String(assignment.cuenta_usuario || source.cuenta_usuario || order.cuenta_usuario || "").trim(),
     cuenta_clave: String(assignment.cuenta_clave || source.cuenta_clave || order.cuenta_clave || "").trim(),
     perfil_nombre: String(assignment.perfil_nombre || source.perfil_nombre || order.perfil_nombre || "").trim(),
-    pin: String(assignment.pin || source.pin || order.pin || "").trim(),
+    pin: String(assignment.pin !== "" && assignment.pin !== undefined && assignment.pin !== null ? assignment.pin : (source.pin ?? order.pin ?? "")).trim(),
     url_producto: String(assignment.url_producto || source.url_producto || order.url_producto || "").trim(),
   };
 }

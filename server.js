@@ -28,6 +28,7 @@ const {
   normalizeRenewal,
   validateRenewal,
   validateRenewalConfirmation,
+  OPEN_RENEWAL_STATUSES,
   RENEWAL_STATUSES,
 } = require("./src/services/renewals/validation");
 const FileSessionStore = require("./src/services/sessions/fileSessionStore");
@@ -552,7 +553,7 @@ function normalizeAssignmentRequests(payload, components) {
       producto_id: String(assignment.producto_id || component.producto_id || "").trim(),
       inventario_id: String(assignment.inventario_id || "").trim(),
       perfil_nombre: String(assignment.perfil_nombre || "").trim(),
-      pin: String(assignment.pin || "").trim(),
+      pin: String(assignment.pin ?? "").trim(),
       precio_venta: assignment.precio_venta === undefined || assignment.precio_venta === null ? "" : assignment.precio_venta,
       costo_proveedor: assignment.costo_proveedor === undefined || assignment.costo_proveedor === null ? "" : assignment.costo_proveedor,
       fecha_vencimiento_cliente: String(assignment.fecha_vencimiento_cliente || payload.fecha_vencimiento_cliente || "").trim(),
@@ -762,7 +763,7 @@ async function assignInventoryToOrder(orderId, inventoryId, payload = {}) {
     const deliveryItem = {
       ...item,
       perfil_nombre: assignment.perfil_nombre || item.perfil_nombre,
-      pin: assignment.pin || item.pin,
+      pin: assignment.pin !== "" ? assignment.pin : item.pin,
     };
     const fechaVencimientoCliente = assignment.fecha_vencimiento_cliente || item.fecha_vencimiento_cliente;
     const datosEntrega = buildDeliveryData(deliveryItem, assignment.notas_entrega);
@@ -916,6 +917,37 @@ async function renewInventoryItem(id, payload = {}) {
 async function readRenewals() {
   const renewals = await renewalStore.listRenewals();
   return renewals.map(normalizeRenewal);
+}
+
+function isOpenRenewalStatus(status) {
+  return OPEN_RENEWAL_STATUSES.includes(String(status || "").trim());
+}
+
+async function assertNoOpenRenewalDuplicate(renewal, currentRenewalId = "") {
+  if (!isOpenRenewalStatus(renewal.estado)) {
+    return;
+  }
+
+  const inventoryId = String(renewal.inventario_id || "").trim();
+
+  if (!inventoryId) {
+    return;
+  }
+
+  const duplicate = (await readRenewals()).find(
+    (entry) =>
+      entry.renovacion_id !== currentRenewalId &&
+      entry.inventario_id === inventoryId &&
+      isOpenRenewalStatus(entry.estado)
+  );
+
+  if (duplicate) {
+    const error = new Error(
+      `Ya existe una renovacion abierta para esta cuenta (${duplicate.renovacion_id}). Finaliza o cancela la renovacion existente antes de crear otra.`
+    );
+    error.statusCode = 409;
+    throw error;
+  }
 }
 
 async function readProviders() {
@@ -1079,6 +1111,7 @@ async function createRenewal(payload = {}) {
     throw error;
   }
 
+  await assertNoOpenRenewalDuplicate(renewal);
   return normalizeRenewal(await renewalStore.createRenewal(renewal));
 }
 
@@ -1105,6 +1138,7 @@ async function updateRenewal(id, payload = {}) {
     throw error;
   }
 
+  await assertNoOpenRenewalDuplicate(renewal, current.renovacion_id);
   return normalizeRenewal(await renewalStore.updateRenewal(id, renewal));
 }
 

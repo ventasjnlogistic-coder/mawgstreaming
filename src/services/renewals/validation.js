@@ -1,4 +1,5 @@
 const RENEWAL_STATUSES = ["pendiente_aviso", "avisado", "comprobante_recibido", "pagado", "renovado", "vencido", "cancelado"];
+const OPEN_RENEWAL_STATUSES = ["pendiente_aviso", "avisado", "comprobante_recibido", "pagado"];
 
 const DEFAULT_RENEWAL = {
   renovacion_id: "",
@@ -90,6 +91,7 @@ function validateRenewalConfirmation(renewal) {
 
 module.exports = {
   DEFAULT_RENEWAL,
+  OPEN_RENEWAL_STATUSES,
   RENEWAL_STATUSES,
   generateRenewalId,
   normalizeRenewal,
