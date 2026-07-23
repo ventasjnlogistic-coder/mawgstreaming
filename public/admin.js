@@ -2345,8 +2345,14 @@ function getFilteredProviderPurchases() {
 
   return providerPurchases.filter((purchase) => {
     const metricsState = getProviderPurchaseInventoryState(purchase);
+    const metrics = getProviderPurchaseMetrics(purchase);
     const matchesStatus = !status || purchase.estado === status;
-    const matchesInventory = !inventoryState || metricsState === inventoryState;
+    const matchesInventory =
+      !inventoryState ||
+      (inventoryState === "faltantes" && metrics.missing > 0) ||
+      (inventoryState === "sin_inventario" && metrics.generated === 0) ||
+      (inventoryState === "alerta_vencimiento" && metrics.clientAfterProvider > 0) ||
+      (inventoryState === "completo" && metricsState === "completo");
     const matchesQuery =
       !query ||
       [
