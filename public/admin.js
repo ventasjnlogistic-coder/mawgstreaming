@@ -918,6 +918,16 @@ function getExpirationStatus(value) {
   return { label: `Vence en ${days} dias`, level: "ok", isSoon: false };
 }
 
+function isInventoryDueSoon(item) {
+  const days = daysUntil(item.fecha_vencimiento_cliente);
+  return days !== null && days >= 0 && days <= 7;
+}
+
+function isInventoryExpired(item) {
+  const days = daysUntil(item.fecha_vencimiento_cliente);
+  return days !== null && days < 0;
+}
+
 function normalizePhone(value) {
   const digits = String(value || "").replace(/\D/g, "");
 
@@ -1946,7 +1956,12 @@ function getFilteredInventory() {
 
   return inventoryItems.filter((item) => {
     const expirationStatus = getExpirationStatus(item.fecha_vencimiento_cliente);
-    const matchesStatus = !status || (status === "vence-pronto" ? expirationStatus.isSoon : item.estado === status);
+    const matchesStatus =
+      !status ||
+      (status === "vence-pronto" && expirationStatus.isSoon) ||
+      (status === "por_vencer" && (item.estado === "por_vencer" || isInventoryDueSoon(item))) ||
+      (status === "vencido" && (item.estado === "vencido" || isInventoryExpired(item))) ||
+      (!["vence-pronto", "por_vencer", "vencido"].includes(status) && item.estado === status);
     const matchesQuery =
       !query ||
       [
