@@ -2,7 +2,7 @@ class AppsScriptInventoryStore {
   constructor(config) {
     this.endpointUrl = config.endpointUrl;
     this.adminToken = config.adminToken;
-    this.timeoutMs = Number(config.timeoutMs || 15000);
+    this.timeoutMs = Number(config.timeoutMs || 30000);
   }
 
   createResponseError(response, data) {
@@ -45,6 +45,13 @@ class AppsScriptInventoryStore {
       }
 
       return data;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        const timeoutError = new Error("Google Apps Script demoro demasiado en responder. Intenta con menos cuentas o aumenta APPS_SCRIPT_TIMEOUT_MS.");
+        timeoutError.statusCode = 504;
+        throw timeoutError;
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -88,6 +95,11 @@ class AppsScriptInventoryStore {
   async updateItem(id, patch) {
     const data = await this.request(this.withToken({ action: "inventory.update", id, item: patch }));
     return data.item || patch;
+  }
+
+  async bulkUpdateItems(filters, patch) {
+    const data = await this.request(this.withToken({ action: "inventory.bulkupdate", filters, patch }));
+    return Array.isArray(data.items) ? data.items : [];
   }
 
   async assignToOrder(orderId, inventoryId, patch) {

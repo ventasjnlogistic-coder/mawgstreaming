@@ -364,5 +364,163 @@
       "proveedor": "Alex Zeta"
     },
     "creado_en": "2026-07-16T04:37:07.010Z"
+  },
+  {
+    "evento_id": "AUD-20260725003324-UW36",
+    "entidad": "renovacion",
+    "entidad_id": "REN-20260725003319-NFGE",
+    "accion": "crear",
+    "estado_anterior": "",
+    "estado_nuevo": "pendiente_aviso",
+    "usuario": "lfarro",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "inventario_id": "INV-20260716181512-6HBC",
+      "monto": 12
+    },
+    "creado_en": "2026-07-25T00:33:24.635Z"
+  },
+  {
+    "evento_id": "AUD-20260725004213-A7J9",
+    "entidad": "plantilla",
+    "entidad_id": "renovacion_confirmada",
+    "accion": "actualizar_plantilla",
+    "estado_anterior": "",
+    "estado_nuevo": "activo",
+    "usuario": "lfarro",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "nombre": "Renovacion confirmada"
+    },
+    "creado_en": "2026-07-25T00:42:13.409Z"
+  },
+  {
+    "evento_id": "AUD-20260725014003-3ZKX",
+    "entidad": "renovacion",
+    "entidad_id": "REN-20260725013957-A9LB",
+    "accion": "crear",
+    "estado_anterior": "",
+    "estado_nuevo": "pendiente_aviso",
+    "usuario": "lfarro",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "inventario_id": "INV-20260716181512-6HBC",
+      "monto": 12
+    },
+    "creado_en": "2026-07-25T01:40:03.002Z"
+  },
+  {
+    "evento_id": "AUD-20260725014102-GTI5",
+    "entidad": "renovacion",
+    "entidad_id": "REN-20260725013957-A9LB",
+    "accion": "confirmar",
+    "estado_anterior": "pendiente_aviso",
+    "estado_nuevo": "renovado",
+    "usuario": "lfarro",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "inventario_id": "INV-20260716181512-6HBC",
+      "vencimiento_nuevo": "2026-07-24"
+    },
+    "creado_en": "2026-07-25T01:41:02.772Z"
+  },
+  {
+    "evento_id": "AUD-20260725015150-VDZ3",
+    "entidad": "configuracion_sitio",
+    "entidad_id": "hero_card_1_imagen",
+    "accion": "actualizar_configuracion",
+    "estado_anterior": "",
+    "estado_nuevo": "activo",
+    "usuario": "lfarro",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "nombre": "Cuadrante 1 imagen"
+    },
+    "creado_en": "2026-07-25T01:51:50.952Z"
+  },
+  {
+    "evento_id": "AUD-20260725204055-I45N",
+    "entidad": "inventario",
+    "entidad_id": "bulk-update",
+    "accion": "actualizar_masivo",
+    "estado_anterior": "",
+    "estado_nuevo": "",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "filtros": {
+        "producto": "netflix_premium",
+        "cuenta_usuario": "__codex_no_match__",
+        "proveedor": "",
+        "estado": ""
+      },
+      "campos": [
+        "notas"
+      ],
+      "cantidad": 0
+    },
+    "creado_en": "2026-07-25T20:40:55.794Z"
+  },
+  {
+    "evento_id": "AUD-20260725204323-5DXX",
+    "entidad": "inventario",
+    "entidad_id": "bulk-update",
+    "accion": "actualizar_masivo",
+    "estado_anterior": "",
+    "estado_nuevo": "",
+    "usuario": "admin",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "filtros": {
+        "producto": "netflix_premium",
+        "cuenta_usuario": "__codex_no_match__",
+        "proveedor": "",
+        "estado": ""
+      },
+      "campos": [
+        "notas"
+      ],
+      "cantidad": 0
+    },
+    "creado_en": "2026-07-25T20:43:23.149Z"
+  },
+  {
+    "evento_id": "AUD-20260725204852-VIP6",
+    "entidad": "inventario",
+    "entidad_id": "bulk-update",
+    "accion": "actualizar_masivo",
+    "estado_anterior": "",
+    "estado_nuevo": "",
+    "usuario": "lfarro",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "filtros": {
+        "producto": "netflix_premium",
+        "cuenta_usuario": "mawgstreaming@gmail.com",
+        "proveedor": "",
+        "estado": ""
+      },
+      "campos": [
+        "usuario_bot",
+        "contrasena_bot"
+      ],
+      "cantidad": 5
+    },
+    "creado_en": "2026-07-25T20:48:52.550Z"
+  },
+  {
+    "evento_id": "AUD-20260725205000-ULOW",
+    "entidad": "inventario",
+    "entidad_id": "INV-20260716181510-ZM8R",
+    "accion": "actualizar",
+    "estado_anterior": "ocupado",
+    "estado_nuevo": "ocupado",
+    "usuario": "lfarro",
+    "ip": "127.0.0.1",
+    "detalles": {
+      "producto": "NETFLIX PREMIUM",
+      "proveedor": "NETFLIX - MICHINI"
+    },
+    "creado_en": "2026-07-25T20:50:00.047Z"
   }
 ]

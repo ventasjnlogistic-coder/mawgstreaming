@@ -601,6 +601,18 @@
                 <input name="url_producto" type="text" placeholder="https://..." />
               </label>
               <label>
+                Link Bot
+                <input name="link_bot" type="text" placeholder="https://..." />
+              </label>
+              <label>
+                Usuario bot
+                <input name="usuario_bot" type="text" placeholder="usuario enviado por proveedor" />
+              </label>
+              <label>
+                Contraseña bot
+                <input name="contrasena_bot" type="text" autocomplete="off" placeholder="contraseña enviada por proveedor" />
+              </label>
+              <label>
                 Metodo pago
                 <input name="metodo_pago" type="text" placeholder="Yape, Plin, transferencia" />
               </label>
@@ -671,18 +683,10 @@
       </section>
 
       <section class="admin-layout inventory-layout admin-view" id="inventario" data-admin-view="inventario" hidden>
-        <aside class="admin-panel product-list-panel" aria-label="Inventario de cuentas">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Inventario</p>
-              <h2>Cuentas</h2>
-            </div>
-            <span class="status-pill" id="inventoryCount">0 cuentas</span>
-          </div>
-          <div class="inventory-filters">
+        <div class="admin-panel inventory-filter-panel" aria-label="Filtros de inventario">
+          <div class="inventory-filters inventory-advanced-filters">
             <select id="inventoryStatusFilter" aria-label="Filtrar inventario por estado">
               <option value="">Todos los estados</option>
-              <option value="vence-pronto">Vence pronto</option>
               <option value="pendiente_revision">Pendiente revision</option>
               <option value="disponible">Disponible</option>
               <option value="ocupado">Ocupado</option>
@@ -692,7 +696,28 @@
               <option value="reclamo">Reclamo</option>
               <option value="baja">Baja</option>
             </select>
-            <input type="search" id="searchInventory" placeholder="Buscar por producto, proveedor o cuenta" />
+            <select id="inventoryProductFilter" aria-label="Filtrar inventario por producto">
+              <option value="">Todos los productos</option>
+            </select>
+            <input type="search" id="inventoryClientFilter" placeholder="Cliente" />
+            <input type="search" id="inventoryEmailFilter" placeholder="Correo de cuenta" />
+            <input type="search" id="inventoryPhoneFilter" placeholder="Celular cliente" />
+            <input type="date" id="inventoryDueStartFilter" aria-label="Vencimiento desde" />
+            <input type="date" id="inventoryDueEndFilter" aria-label="Vencimiento hasta" />
+            <input type="search" id="searchInventory" placeholder="Buscar general" />
+            <button class="button button-secondary compact-button" type="button" id="clearInventoryFiltersButton">Limpiar</button>
+            <button class="button button-primary compact-button" type="button" id="notifyGroupedRenewalsButton">Avisar grupo por cliente</button>
+            <button class="button button-secondary compact-button" type="button" id="bulkInventoryUpdateButton">Actualizacion masiva</button>
+          </div>
+        </div>
+
+        <aside class="admin-panel product-list-panel" aria-label="Inventario de cuentas">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Inventario</p>
+              <h2>Cuentas</h2>
+            </div>
+            <span class="status-pill" id="inventoryCount">0 cuentas</span>
           </div>
           <div class="admin-product-list" id="adminInventoryList"></div>
         </aside>
@@ -751,6 +776,18 @@
               <label>
                 URL producto
                 <input name="url_producto" type="text" placeholder="https://..." />
+              </label>
+              <label>
+                Link Bot
+                <input name="link_bot" type="text" placeholder="https://..." />
+              </label>
+              <label>
+                Usuario bot
+                <input name="usuario_bot" type="text" placeholder="usuario bot" />
+              </label>
+              <label>
+                Contraseña bot
+                <input name="contrasena_bot" type="text" autocomplete="off" placeholder="contraseña bot" />
               </label>
               <label>
                 Estado
@@ -962,7 +999,7 @@
               </label>
             </div>
             <p class="local-file-note">
-              Variables disponibles: {{cliente_nombre}}, {{cliente_contacto}}, {{pedido_id}}, {{producto_nombre}}, {{datos_entrega}}, {{fecha_vencimiento_cliente}}, {{vencimiento_formateado}}, {{monto}}, {{proveedor}}, {{cuenta_usuario}}, {{cuenta_clave}}, {{url_producto}}, {{perfil_nombre}}, {{pin}}.
+              Variables disponibles: {{cliente_nombre}}, {{cliente_contacto}}, {{pedido_id}}, {{producto_nombre}}, {{datos_entrega}}, {{fecha_vencimiento_cliente}}, {{vencimiento_formateado}}, {{monto}}, {{proveedor}}, {{cuenta_usuario}}, {{cuenta_clave}}, {{url_producto}}, {{link_bot}}, {{usuario_bot}}, {{contrasena_bot}}, {{perfil_nombre}}, {{pin}}.
             </p>
             <div class="form-actions">
               <button class="button button-primary" type="submit">Guardar plantilla</button>
@@ -1008,6 +1045,7 @@
                 <select name="tipo">
                   <option value="texto">Texto</option>
                   <option value="telefono">Telefono</option>
+                  <option value="imagen">Imagen</option>
                 </select>
               </label>
               <label>
@@ -1027,7 +1065,7 @@
               </label>
             </div>
             <p class="local-file-note">
-              Usa telefonos en formato internacional para WhatsApp, por ejemplo 51921217484. En mensajes puedes usar placeholders como :telefono:, :check: o :alerta:. En horarios puedes usar **negrita** y saltos de linea.
+              Usa telefonos en formato internacional para WhatsApp, por ejemplo 51921217484. Para imagenes puedes usar assets/images/archivo.png o un enlace de Google Drive. En mensajes y horarios puedes usar **negrita**, saltos de linea y placeholders como :telefono:, :check: o :alerta:.
             </p>
             <div class="form-actions">
               <button class="button button-primary" type="submit">Guardar configuracion</button>
@@ -1069,6 +1107,107 @@
             Cancelar
           </button>
         </div>
+      </section>
+    </div>
+
+    <div class="confirm-modal" id="groupedRenewalModal" aria-hidden="true">
+      <div class="modal-backdrop" data-close-grouped-renewals></div>
+      <section class="modal-dialog grouped-renewal-dialog" role="dialog" aria-modal="true" aria-labelledby="groupedRenewalTitle">
+        <button class="modal-close" type="button" aria-label="Cerrar alertas grupales" data-close-grouped-renewals>x</button>
+        <div class="modal-heading">
+          <p class="eyebrow">Alertas agrupadas</p>
+          <h2 id="groupedRenewalTitle">Vencimientos por cliente</h2>
+          <p>Revisa las cuentas agrupadas por celular y envia la alerta solo al cliente que corresponda.</p>
+        </div>
+        <div class="grouped-renewal-list" id="groupedRenewalList"></div>
+      </section>
+    </div>
+
+    <div class="confirm-modal" id="bulkInventoryModal" aria-hidden="true">
+      <div class="modal-backdrop" data-close-bulk-inventory></div>
+      <section class="modal-dialog bulk-inventory-dialog" role="dialog" aria-modal="true" aria-labelledby="bulkInventoryTitle">
+        <button class="modal-close" type="button" aria-label="Cerrar actualizacion masiva" data-close-bulk-inventory>x</button>
+        <div class="modal-heading">
+          <p class="eyebrow">Inventario</p>
+          <h2 id="bulkInventoryTitle">Actualizacion masiva</h2>
+          <p>Filtra las cuentas, revisa la previsualizacion y aplica solo los campos marcados.</p>
+        </div>
+
+        <form class="bulk-inventory-form" id="bulkInventoryForm">
+          <div class="bulk-inventory-section">
+            <p class="eyebrow">Filtros obligatorios</p>
+            <div class="bulk-inventory-grid">
+              <label>
+                Producto o tipo
+                <select name="filter_producto" id="bulkInventoryProductFilter" required>
+                  <option value="">Selecciona producto</option>
+                </select>
+              </label>
+              <label>
+                Usuario / correo
+                <input name="filter_cuenta_usuario" type="search" placeholder="correo@cuenta.com" />
+              </label>
+              <label>
+                Proveedor
+                <input name="filter_proveedor" type="search" placeholder="Nombre proveedor" />
+              </label>
+              <label>
+                Estado
+                <select name="filter_estado">
+                  <option value="">Todos</option>
+                  <option value="pendiente_revision">Pendiente revision</option>
+                  <option value="disponible">Disponible</option>
+                  <option value="ocupado">Ocupado</option>
+                  <option value="reservado">Reservado</option>
+                  <option value="por_vencer">Por vencer</option>
+                  <option value="vencido">Vencido</option>
+                  <option value="reclamo">Reclamo</option>
+                  <option value="baja">Baja</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="bulk-inventory-section">
+            <p class="eyebrow">Campos a modificar</p>
+            <div class="bulk-inventory-grid">
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="cuenta_usuario" /> Usuario / correo <input name="cuenta_usuario" type="text" /></label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="cuenta_clave" /> Clave <input name="cuenta_clave" type="text" autocomplete="off" /></label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="perfil_nombre" /> Perfil <input name="perfil_nombre" type="text" /></label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="pin" /> PIN <input name="pin" type="text" /></label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="url_producto" /> URL producto <input name="url_producto" type="text" /></label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="link_bot" /> Link bot <input name="link_bot" type="text" /></label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="usuario_bot" /> Usuario bot <input name="usuario_bot" type="text" /></label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="contrasena_bot" /> Contrasena bot <input name="contrasena_bot" type="text" /></label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="fecha_vencimiento_cliente" /> Vence cliente <input name="fecha_vencimiento_cliente" type="date" /></label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="fecha_vencimiento_proveedor" /> Vence proveedor <input name="fecha_vencimiento_proveedor" type="date" /></label>
+              <label class="bulk-field">
+                <input type="checkbox" data-bulk-field="estado" /> Estado
+                <select name="estado">
+                  <option value="pendiente_revision">Pendiente revision</option>
+                  <option value="disponible">Disponible</option>
+                  <option value="ocupado">Ocupado</option>
+                  <option value="reservado">Reservado</option>
+                  <option value="por_vencer">Por vencer</option>
+                  <option value="vencido">Vencido</option>
+                  <option value="reclamo">Reclamo</option>
+                  <option value="baja">Baja</option>
+                </select>
+              </label>
+              <label class="bulk-field"><input type="checkbox" data-bulk-field="estado_control" /> Estado control <input name="estado_control" type="text" /></label>
+              <label class="bulk-field form-wide"><input type="checkbox" data-bulk-field="notas" /> Notas <textarea name="notas" rows="3"></textarea></label>
+            </div>
+          </div>
+
+          <div class="bulk-preview-heading">
+            <span class="status-pill" id="bulkInventoryPreviewCount">0 cuentas</span>
+            <div class="form-actions">
+              <button class="button button-secondary compact-button" type="button" id="previewBulkInventoryButton">Previsualizar</button>
+              <button class="button button-primary compact-button" type="submit" id="applyBulkInventoryButton" disabled>Aplicar cambios</button>
+            </div>
+          </div>
+          <div class="grouped-renewal-list bulk-inventory-preview" id="bulkInventoryPreviewList"></div>
+        </form>
       </section>
     </div>
 

@@ -84,6 +84,9 @@ const INVENTORY_HEADERS = [
   "fecha_vencimiento_proveedor",
   "compra_id",
   "url_producto",
+  "link_bot",
+  "usuario_bot",
+  "contrasena_bot",
 ];
 const INVENTORY_STATUSES = ["pendiente_revision", "disponible", "ocupado", "reservado", "por_vencer", "vencido", "reclamo", "baja"];
 const RENEWAL_HEADERS = [
@@ -135,6 +138,9 @@ const PROVIDER_PURCHASE_HEADERS = [
   "cuenta_usuario",
   "cuenta_clave",
   "url_producto",
+  "link_bot",
+  "usuario_bot",
+  "contrasena_bot",
 ];
 const PROVIDER_STATUSES = ["activo", "observado", "inactivo"];
 const PROVIDER_PURCHASE_STATUSES = ["pendiente", "pagado", "recibido", "parcial", "cancelado"];
@@ -145,11 +151,12 @@ const DEFAULT_PAYMENT_METHODS = [
 ];
 const DEFAULT_MESSAGE_TEMPLATES = [
   ["entrega", "Entrega", "Datos de acceso", ":estrella: Hola {{cliente_nombre}}, tu servicio {{producto_nombre}} esta listo.\n\n{{datos_entrega}}\n\n:calendario: Vence: {{vencimiento_formateado}}", "activo", 1],
-  ["renovacion", "Renovacion", "Renovacion de servicio", ":estrella: Hola {{cliente_nombre}}, tu servicio {{producto_nombre}} esta por vencer el {{vencimiento_formateado}}.\n\n:alerta: Puedes renovar por {{monto}}.", "activo", 2],
-  ["corte_servicio", "Corte de servicio", "Servicio cortado", ":alerta: Hola {{cliente_nombre}}, tu servicio {{producto_nombre}} ha sido cortado por falta de pago.\n\nPedido: {{pedido_id}}\nVencimiento: {{vencimiento_formateado}}\n\n:estrella: Para reactivarlo, por favor realiza el pago de {{monto}}.", "activo", 3],
-  ["actualizacion_datos", "Actualizacion de datos", "Actualizacion de credenciales", ":alerta::megafono: MAWG Streaming te informa: :check::pin_marcador:\n\n:check: ACTUALIZACION DE DATOS :check: | {{producto_nombre}}\n\n:laptop: CORREO: {{cuenta_usuario}}\n:candado: CONTRASENA: {{cuenta_clave}}\n\n:perfil_hombre: PERFIL: {{perfil_nombre}}\n:pin_personal: PIN: {{pin}}\n:calendario: FECHA DE RENOVACION: {{vencimiento_formateado}}", "activo", 4],
-  ["confirmacion_pago", "Confirmacion de pago", "Pago confirmado", "Hola {{cliente_nombre}}, confirmamos el pago de {{producto_nombre}}. Estamos preparando la entrega.", "activo", 5],
-  ["reclamo", "Reclamo proveedor", "Revision de cuenta", "Hola {{proveedor}}, necesitamos revisar la cuenta {{cuenta_usuario}} del producto {{producto_nombre}}.", "activo", 6],
+  ["renovacion", "Renovacion", "Alerta de vencimiento", "*:alerta: ALERTA DE VENCIMIENTO :alerta:*\n\n*:alerta: Hola {{cliente_nombre}}*\n\nPlataforma: {{producto_nombre}}\nPerfil: {{perfil_nombre}}\nVencimiento: {{vencimiento_formateado}}\n\n*:ojo_dialogo: SI NO HAY RESPUESTA, SE REALIZARA EL CORTE DEL SERVICIO.*\n\n*:check: CONFIRMAR LA RENOVACION DE SU SERVICIO*\n\n*:verde: PAGUE EN DALE - desde YAPE :morado:*\n                        *921 217 484*\n         :corona: A nombre de Luis M. Farro Z. :corona:\n          *(No escribir nada en la descripcion)*\n\n*:mano_dinero: Enviar la captura de pantalla del pago realizado.*\n\n*:stop: PAGO MALVERSADO SERA REPORTADO A LA PNP :stop:*\n\n*Muchas gracias :apreton_manos:*", "activo", 2],
+  ["renovacion_confirmada", "Renovacion confirmada", "Servicio renovado", "*:check: RENOVACION CONFIRMADA :check:*\n\nHola {{cliente_nombre}}, confirmamos la renovacion de tu servicio.\n\nPlataforma: {{producto_nombre}}\nPerfil: {{perfil_nombre}}\nNuevo vencimiento: {{vencimiento_formateado}}\n\nGracias por confiar en MAWG Streaming :apreton_manos:", "activo", 3],
+  ["corte_servicio", "Corte de servicio", "Servicio cortado", ":alerta: Hola {{cliente_nombre}}, tu servicio {{producto_nombre}} ha sido cortado por falta de pago.\n\nPedido: {{pedido_id}}\nVencimiento: {{vencimiento_formateado}}\n\n:estrella: Para reactivarlo, por favor realiza el pago de {{monto}}.", "activo", 4],
+  ["actualizacion_datos", "Actualizacion de datos", "Actualizacion de credenciales", ":alerta::megafono: MAWG Streaming te informa: :check::pin_marcador:\n\n:check: ACTUALIZACION DE DATOS :check: | {{producto_nombre}}\n\n:laptop: CORREO: {{cuenta_usuario}}\n:candado: CONTRASENA: {{cuenta_clave}}\n\n:perfil_hombre: PERFIL: {{perfil_nombre}}\n:pin_personal: PIN: {{pin}}\n:calendario: FECHA DE RENOVACION: {{vencimiento_formateado}}", "activo", 5],
+  ["confirmacion_pago", "Confirmacion de pago", "Pago confirmado", "Hola {{cliente_nombre}}, confirmamos el pago de {{producto_nombre}}. Estamos preparando la entrega.", "activo", 6],
+  ["reclamo", "Reclamo proveedor", "Revision de cuenta", "Hola {{proveedor}}, necesitamos revisar la cuenta {{cuenta_usuario}} del producto {{producto_nombre}}.", "activo", 7],
 ];
 const DEFAULT_SITE_SETTINGS = [
   ["ventas_whatsapp", "WhatsApp ventas", "51921217484", "telefono", "activo", 1],
@@ -163,6 +170,46 @@ const DEFAULT_SITE_SETTINGS = [
   ["horario_linea_2_nombre", "Nombre horario linea 2", "Especial", "texto", "activo", 9],
   ["horario_nota", "Nota de horario", "Los pedidos y renovaciones se atienden por orden de llegada.", "texto", "activo", 10],
   ["horario_nota_nombre", "Nombre nota horario", "Nota", "texto", "activo", 11],
+  ["hero_showcase_label", "Vista previa etiqueta", "Stock actualizado", "texto", "activo", 12],
+  ["hero_showcase_title", "Vista previa titulo", "Compra directa", "texto", "activo", 13],
+  ["hero_showcase_status", "Vista previa estado", "Disponible", "texto", "activo", 14],
+  ["hero_card_1_categoria", "Cuadrante 1 categoria", "Streaming", "texto", "activo", 15],
+  ["hero_card_1_titulo", "Cuadrante 1 titulo", "Netflix Perfil", "texto", "activo", 16],
+  ["hero_card_1_texto", "Cuadrante 1 texto", "Entrega inmediata", "texto", "activo", 17],
+  ["hero_card_1_imagen", "Cuadrante 1 imagen", "", "imagen", "activo", 18],
+  ["hero_card_2_categoria", "Cuadrante 2 categoria", "Cuenta", "texto", "activo", 19],
+  ["hero_card_2_titulo", "Cuadrante 2 titulo", "Disney Premium", "texto", "activo", 20],
+  ["hero_card_2_texto", "Cuadrante 2 texto", "Acceso activo", "texto", "activo", 21],
+  ["hero_card_2_imagen", "Cuadrante 2 imagen", "", "imagen", "activo", 22],
+  ["hero_card_3_categoria", "Cuadrante 3 categoria", "Combo", "texto", "activo", 23],
+  ["hero_card_3_titulo", "Cuadrante 3 titulo", "Netflix + Disney", "texto", "activo", 24],
+  ["hero_card_3_texto", "Cuadrante 3 texto", "Precio especial", "texto", "activo", 25],
+  ["hero_card_3_imagen", "Cuadrante 3 imagen", "", "imagen", "activo", 26],
+  ["hero_card_4_categoria", "Cuadrante 4 categoria", "Curso", "texto", "activo", 27],
+  ["hero_card_4_titulo", "Cuadrante 4 titulo", "Ventas Digitales", "texto", "activo", 28],
+  ["hero_card_4_texto", "Cuadrante 4 texto", "Acceso digital", "texto", "activo", 29],
+  ["hero_card_4_imagen", "Cuadrante 4 imagen", "", "imagen", "activo", 30],
+  ["categorias_label", "Categorias etiqueta", "Categorias", "texto", "activo", 31],
+  ["categorias_titulo", "Categorias titulo", "Explora productos listos para compra en pocos pasos.", "texto", "activo", 32],
+  ["categorias_texto", "Categorias texto", "Revisa disponibilidad, compara precios y compra sin perder tiempo entre mensajes.", "texto", "activo", 33],
+  ["categoria_card_1_icono", "Categoria 1 icono", "TV", "texto", "activo", 34],
+  ["categoria_card_1_titulo", "Categoria 1 titulo", "Cuentas de streaming", "texto", "activo", 35],
+  ["categoria_card_1_texto", "Categoria 1 texto", "Perfiles y cuentas completas para peliculas, series y deportes.", "texto", "activo", 36],
+  ["categoria_card_1_cta", "Categoria 1 boton", "Comprar ahora", "texto", "activo", 37],
+  ["categoria_card_1_link", "Categoria 1 enlace", "#pedido", "texto", "activo", 38],
+  ["categoria_card_1_imagen", "Categoria 1 imagen", "", "imagen", "activo", 39],
+  ["categoria_card_2_icono", "Categoria 2 icono", "ED", "texto", "activo", 40],
+  ["categoria_card_2_titulo", "Categoria 2 titulo", "Cursos digitales", "texto", "activo", 41],
+  ["categoria_card_2_texto", "Categoria 2 texto", "Accesos educativos, herramientas y capacitaciones con entrega digital.", "texto", "activo", 42],
+  ["categoria_card_2_cta", "Categoria 2 boton", "Ver opciones", "texto", "activo", 43],
+  ["categoria_card_2_link", "Categoria 2 enlace", "#pedido", "texto", "activo", 44],
+  ["categoria_card_2_imagen", "Categoria 2 imagen", "", "imagen", "activo", 45],
+  ["categoria_card_3_icono", "Categoria 3 icono", "PK", "texto", "activo", 46],
+  ["categoria_card_3_titulo", "Categoria 3 titulo", "Combos especiales", "texto", "activo", 47],
+  ["categoria_card_3_texto", "Categoria 3 texto", "Paquetes con varios servicios agrupados en una sola compra.", "texto", "activo", 48],
+  ["categoria_card_3_cta", "Categoria 3 boton", "Cotizar combo", "texto", "activo", 49],
+  ["categoria_card_3_link", "Categoria 3 enlace", "#pedido", "texto", "activo", 50],
+  ["categoria_card_3_imagen", "Categoria 3 imagen", "", "imagen", "activo", 51],
 ];
 const DEFAULT_ADMIN_USERS = [
   ["admin", "Administrador", "admin", "cambia-esta-contrasena", "activo", "*"],
@@ -246,6 +293,10 @@ function doPost(e) {
 
     if (action === "inventory.update") {
       return jsonResponse({ ok: true, item: updateInventoryItem_(payload.id, payload.item || {}) });
+    }
+
+    if (action === "inventory.bulkupdate") {
+      return jsonResponse(bulkUpdateInventoryItems_(payload.filters || {}, payload.patch || {}));
     }
 
     if (action === "inventory.assign") {
@@ -373,7 +424,7 @@ function getInventorySheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(INVENTORY_SHEET_NAME) || spreadsheet.insertSheet(INVENTORY_SHEET_NAME);
   ensureSpecificHeaders_(sheet, INVENTORY_HEADERS);
-  ensureTextColumns_(sheet, INVENTORY_HEADERS, ["cuenta_clave", "pin"]);
+  ensureTextColumns_(sheet, INVENTORY_HEADERS, ["cuenta_clave", "pin", "contrasena_bot"]);
   return sheet;
 }
 
@@ -428,6 +479,7 @@ function getProviderPurchasesSheet_() {
   const sheet = spreadsheet.getSheetByName(PROVIDER_PURCHASES_SHEET_NAME) || spreadsheet.insertSheet(PROVIDER_PURCHASES_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PROVIDER_PURCHASE_HEADERS);
   ensureColumnsByName_(sheet, PROVIDER_PURCHASE_HEADERS);
+  ensureTextColumns_(sheet, PROVIDER_PURCHASE_HEADERS, ["cuenta_clave", "contrasena_bot"]);
   return sheet;
 }
 
@@ -462,6 +514,54 @@ function crearHojaPlantillasMensajes() {
     success: true,
     mensaje: "Hoja PlantillasMensajes creada o actualizada correctamente.",
     filas: Math.max(sheet.getLastRow() - 1, 0),
+  };
+}
+
+function actualizarPlantillaAlertaRenovacion() {
+  const template = DEFAULT_MESSAGE_TEMPLATES.find(function (row) {
+    return row[0] === "renovacion";
+  });
+
+  if (!template) {
+    return { success: false, mensaje: "No se encontro la plantilla renovacion en defaults." };
+  }
+
+  const sheet = getMessageTemplatesSheet_();
+  const row = findRowById_(sheet, "renovacion");
+
+  if (row > 0) {
+    sheet.getRange(row, 1, 1, MESSAGE_TEMPLATE_HEADERS.length).setValues([template]);
+  } else {
+    sheet.appendRow(template);
+  }
+
+  return {
+    success: true,
+    mensaje: "Plantilla renovacion actualizada correctamente.",
+  };
+}
+
+function crearPlantillaConfirmacionRenovacion() {
+  const template = DEFAULT_MESSAGE_TEMPLATES.find(function (row) {
+    return row[0] === "renovacion_confirmada";
+  });
+
+  if (!template) {
+    return { success: false, mensaje: "No se encontro la plantilla renovacion_confirmada en defaults." };
+  }
+
+  const sheet = getMessageTemplatesSheet_();
+  const row = findRowById_(sheet, "renovacion_confirmada");
+
+  if (row > 0) {
+    sheet.getRange(row, 1, 1, MESSAGE_TEMPLATE_HEADERS.length).setValues([template]);
+  } else {
+    sheet.appendRow(template);
+  }
+
+  return {
+    success: true,
+    mensaje: "Plantilla renovacion_confirmada creada o actualizada correctamente.",
   };
 }
 
@@ -1480,6 +1580,9 @@ function createInventoryFromProviderPurchase_(purchase) {
         cuenta_usuario: purchase.cuenta_usuario,
         cuenta_clave: purchase.cuenta_clave,
         url_producto: purchase.url_producto,
+        link_bot: purchase.link_bot,
+        usuario_bot: purchase.usuario_bot,
+        contrasena_bot: purchase.contrasena_bot,
         referencia_compra: purchase.referencia_pago || purchase.compra_id,
         fecha_compra: purchase.fecha_compra,
         fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
@@ -1496,7 +1599,12 @@ function createInventoryFromProviderPurchase_(purchase) {
 function rowToProviderPurchase_(row) {
   return PROVIDER_PURCHASE_HEADERS.reduce(function (purchase, key, index) {
     const value = row[index];
-    purchase[key] = ["cantidad", "costo_total", "costo_unitario"].indexOf(key) >= 0 && value !== "" && !isNaN(Number(value)) ? Number(value) : value || "";
+    purchase[key] =
+      ["cantidad", "costo_total", "costo_unitario"].indexOf(key) >= 0 && value !== "" && !isNaN(Number(value))
+        ? Number(value)
+        : value === undefined || value === null
+          ? ""
+          : value;
     return purchase;
   }, {});
 }
@@ -1529,6 +1637,9 @@ function normalizeProviderPurchase_(purchase) {
     cuenta_usuario: String(purchase.cuenta_usuario || "").trim(),
     cuenta_clave: String(purchase.cuenta_clave || "").trim(),
     url_producto: String(purchase.url_producto || "").trim(),
+    link_bot: String(purchase.link_bot || "").trim(),
+    usuario_bot: String(purchase.usuario_bot === undefined || purchase.usuario_bot === null ? "" : purchase.usuario_bot).trim(),
+    contrasena_bot: String(purchase.contrasena_bot === undefined || purchase.contrasena_bot === null ? "" : purchase.contrasena_bot).trim(),
     metodo_pago: String(purchase.metodo_pago || "").trim(),
     referencia_pago: String(purchase.referencia_pago || "").trim(),
     fecha_compra: String(purchase.fecha_compra || "").trim(),
@@ -1630,6 +1741,133 @@ function updateInventoryItem_(id, item) {
   validateInventoryItem_(updated);
   sheet.getRange(row, 1, 1, INVENTORY_HEADERS.length).setValues([inventoryItemToRow_(updated)]);
   return updated;
+}
+
+function bulkUpdateInventoryItems_(filters, patch) {
+  const sheet = getInventorySheet_();
+  const allowedFields = [
+    "cuenta_usuario",
+    "cuenta_clave",
+    "pin",
+    "perfil_nombre",
+    "url_producto",
+    "link_bot",
+    "usuario_bot",
+    "contrasena_bot",
+    "fecha_vencimiento_cliente",
+    "fecha_vencimiento_proveedor",
+    "estado",
+    "estado_control",
+    "notas",
+  ];
+  const normalizedFilters = normalizeBulkInventoryFilters_(filters || {});
+  const normalizedPatch = normalizeBulkInventoryPatch_(patch || {}, allowedFields);
+
+  if (!normalizedFilters.producto) {
+    throw new Error("Selecciona un producto antes de actualizar inventario masivamente.");
+  }
+
+  if (Object.keys(normalizedPatch).length === 0) {
+    throw new Error("Selecciona al menos un campo para actualizar.");
+  }
+
+  if (normalizedPatch.estado && INVENTORY_STATUSES.indexOf(normalizedPatch.estado) < 0) {
+    throw new Error("Estado de inventario no soportado.");
+  }
+
+  const lastRow = sheet.getLastRow();
+  const updatedItems = [];
+
+  if (lastRow < 2) {
+    return { ok: true, updated: 0, items: [] };
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, INVENTORY_HEADERS.length).getValues();
+  var changed = false;
+
+  rows.forEach(function (row, index) {
+    const item = rowToInventoryItem_(row);
+
+    if (!inventoryMatchesBulkFilters_(item, normalizedFilters)) {
+      return;
+    }
+
+    const updated = normalizeInventoryItem_(
+      Object.assign({}, item, normalizedPatch, {
+        inventario_id: item.inventario_id,
+        actualizado_en: new Date().toISOString(),
+      })
+    );
+
+    rows[index] = inventoryItemToRow_(updated);
+    updatedItems.push(updated);
+    changed = true;
+  });
+
+  if (changed) {
+    formatInventoryTextColumns_(sheet, lastRow);
+    sheet.getRange(2, 1, rows.length, INVENTORY_HEADERS.length).setValues(rows);
+  }
+
+  return { ok: true, updated: updatedItems.length, items: updatedItems };
+}
+
+function normalizeBulkInventoryFilters_(filters) {
+  return {
+    producto: String(filters.producto || "").trim().toLowerCase(),
+    cuenta_usuario: String(filters.cuenta_usuario || "").trim().toLowerCase(),
+    proveedor: String(filters.proveedor || "").trim().toLowerCase(),
+    estado: String(filters.estado || "").trim(),
+  };
+}
+
+function normalizeBulkInventoryPatch_(patch, allowedFields) {
+  const normalized = {};
+
+  allowedFields.forEach(function (field) {
+    if (Object.prototype.hasOwnProperty.call(patch, field)) {
+      normalized[field] = patch[field] === undefined || patch[field] === null ? "" : patch[field];
+    }
+  });
+
+  return normalized;
+}
+
+function inventoryMatchesBulkFilters_(item, filters) {
+  const productId = String(item.producto_id || "").toLowerCase();
+  const productName = String(item.producto_nombre || "").toLowerCase();
+  const accountUser = String(item.cuenta_usuario || "").toLowerCase();
+  const provider = String(item.proveedor || "").toLowerCase();
+  const matchesProduct = !filters.producto || productId.indexOf(filters.producto) >= 0 || productName.indexOf(filters.producto) >= 0;
+  const matchesUser = !filters.cuenta_usuario || accountUser.indexOf(filters.cuenta_usuario) >= 0;
+  const matchesProvider = !filters.proveedor || provider.indexOf(filters.proveedor) >= 0;
+  const matchesStatus = !filters.estado || item.estado === filters.estado;
+
+  return matchesProduct && matchesUser && matchesProvider && matchesStatus;
+}
+
+function formatInventoryTextRow_(sheet, row) {
+  ["cuenta_usuario", "cuenta_clave", "perfil_nombre", "pin", "usuario_bot", "contrasena_bot"].forEach(function (field) {
+    const column = INVENTORY_HEADERS.indexOf(field) + 1;
+    if (column > 0) {
+      sheet.getRange(row, column).setNumberFormat("@");
+    }
+  });
+}
+
+function formatInventoryTextColumns_(sheet, lastRow) {
+  const rowCount = Math.max(Number(lastRow || 0) - 1, 0);
+
+  if (rowCount <= 0) {
+    return;
+  }
+
+  ["cuenta_usuario", "cuenta_clave", "perfil_nombre", "pin", "usuario_bot", "contrasena_bot"].forEach(function (field) {
+    const column = INVENTORY_HEADERS.indexOf(field) + 1;
+    if (column > 0) {
+      sheet.getRange(2, column, rowCount, 1).setNumberFormat("@");
+    }
+  });
 }
 
 function assignInventoryToOrder_(orderId, inventoryId, assignment) {
@@ -1734,6 +1972,9 @@ function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
       perfil_nombre: perfilNombre,
       pin: pin,
       url_producto: pair.request.url_producto || pair.item.url_producto || "",
+      link_bot: pair.item.link_bot || "",
+      usuario_bot: pair.item.usuario_bot || "",
+      contrasena_bot: pair.item.contrasena_bot || "",
       notas_entrega: pair.request.notas_entrega,
     };
   });
@@ -1783,6 +2024,9 @@ function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
         .join(" || "),
       asignaciones_inventario: assignmentDetails,
       url_producto: firstAssignment.url_producto || "",
+      link_bot: firstAssignment.link_bot || "",
+      usuario_bot: firstAssignment.usuario_bot || "",
+      contrasena_bot: firstAssignment.contrasena_bot || "",
       actualizado_en: now,
     })
   );
@@ -1957,6 +2201,9 @@ function normalizeInventoryItem_(item) {
     precio_venta_sugerido: item.precio_venta_sugerido === undefined || item.precio_venta_sugerido === null ? "" : item.precio_venta_sugerido,
     referencia_compra: String(item.referencia_compra || "").trim(),
     url_producto: String(item.url_producto || "").trim(),
+    link_bot: String(item.link_bot || "").trim(),
+    usuario_bot: String(item.usuario_bot === undefined || item.usuario_bot === null ? "" : item.usuario_bot).trim(),
+    contrasena_bot: String(item.contrasena_bot === undefined || item.contrasena_bot === null ? "" : item.contrasena_bot).trim(),
     cuenta_usuario: String(item.cuenta_usuario || "").trim(),
     cuenta_clave: String(item.cuenta_clave === undefined || item.cuenta_clave === null ? "" : item.cuenta_clave).trim(),
     perfil_nombre: String(item.perfil_nombre === undefined || item.perfil_nombre === null ? "" : item.perfil_nombre).trim(),
@@ -2286,6 +2533,9 @@ function normalizeInventoryAssignments_(value, order) {
         fecha_vencimiento_cliente: String(entry.fecha_vencimiento_cliente || "").trim(),
         datos_entrega: String(entry.datos_entrega || "").trim(),
         url_producto: String(entry.url_producto || "").trim(),
+        link_bot: String(entry.link_bot || "").trim(),
+        usuario_bot: String(entry.usuario_bot === undefined || entry.usuario_bot === null ? "" : entry.usuario_bot).trim(),
+        contrasena_bot: String(entry.contrasena_bot === undefined || entry.contrasena_bot === null ? "" : entry.contrasena_bot).trim(),
         notas_entrega: String(entry.notas_entrega || "").trim(),
       };
     })

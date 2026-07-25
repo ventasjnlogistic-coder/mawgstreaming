@@ -72,6 +72,46 @@ class JsonInventoryStore {
       return items[index];
     });
   }
+
+  itemMatchesFilters(item, filters = {}) {
+    const product = String(filters.producto || "").trim().toLowerCase();
+    const accountUser = String(filters.cuenta_usuario || "").trim().toLowerCase();
+    const provider = String(filters.proveedor || "").trim().toLowerCase();
+    const status = String(filters.estado || "").trim();
+    const matchesProduct =
+      !product ||
+      String(item.producto_id || "").toLowerCase().includes(product) ||
+      String(item.producto_nombre || "").toLowerCase().includes(product);
+    const matchesUser = !accountUser || String(item.cuenta_usuario || "").toLowerCase().includes(accountUser);
+    const matchesProvider = !provider || String(item.proveedor || "").toLowerCase().includes(provider);
+    const matchesStatus = !status || item.estado === status;
+
+    return matchesProduct && matchesUser && matchesProvider && matchesStatus;
+  }
+
+  async bulkUpdateItems(filters, patch) {
+    return this.enqueue(async () => {
+      const items = await this.readItems();
+      const updatedItems = [];
+
+      const nextItems = items.map((item) => {
+        if (!this.itemMatchesFilters(item, filters)) {
+          return item;
+        }
+
+        const updated = {
+          ...item,
+          ...patch,
+          inventario_id: item.inventario_id,
+        };
+        updatedItems.push(updated);
+        return updated;
+      });
+
+      await this.writeItems(nextItems);
+      return updatedItems;
+    });
+  }
 }
 
 module.exports = JsonInventoryStore;

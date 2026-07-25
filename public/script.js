@@ -22,6 +22,14 @@ const scheduleLine2Title = document.querySelector("#scheduleLine2Title");
 const scheduleLine2 = document.querySelector("#scheduleLine2");
 const scheduleNoteTitle = document.querySelector("#scheduleNoteTitle");
 const scheduleNote = document.querySelector("#scheduleNote");
+const heroShowcaseLabel = document.querySelector("#heroShowcaseLabel");
+const heroShowcaseTitle = document.querySelector("#heroShowcaseTitle");
+const heroShowcaseStatus = document.querySelector("#heroShowcaseStatus");
+const heroShowcaseGrid = document.querySelector("#heroShowcaseGrid");
+const categorySectionLabel = document.querySelector("#categorySectionLabel");
+const categorySectionTitle = document.querySelector("#categorySectionTitle");
+const categorySectionText = document.querySelector("#categorySectionText");
+const categoryGrid = document.querySelector("#categoryGrid");
 
 let whatsappNumber = "51921217484";
 let selectedProduct = "";
@@ -419,6 +427,116 @@ function buildWhatsAppUrl(number, message = "") {
   return normalizedNumber ? `https://api.whatsapp.com/send?${params.toString()}` : "#";
 }
 
+function getDriveFileId(value) {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue || !/drive\.google\.com|docs\.google\.com/.test(rawValue)) {
+    return "";
+  }
+
+  const patterns = [/\/file\/d\/([^/]+)/, /\/uc\?[^#]*\bid=([^&#]+)/, /[?&]id=([^&#]+)/, /\/open\?[^#]*\bid=([^&#]+)/];
+
+  for (const pattern of patterns) {
+    const match = rawValue.match(pattern);
+    if (match?.[1]) {
+      return decodeURIComponent(match[1]).trim();
+    }
+  }
+
+  return "";
+}
+
+function normalizeShowcaseImage(value) {
+  const image = String(value || "").trim();
+  const driveFileId = getDriveFileId(image);
+
+  return driveFileId ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(driveFileId)}&sz=w800` : image;
+}
+
+function renderHeroShowcase(map) {
+  if (heroShowcaseLabel) {
+    heroShowcaseLabel.textContent = map.hero_showcase_label || "Stock actualizado";
+  }
+
+  if (heroShowcaseTitle) {
+    heroShowcaseTitle.textContent = map.hero_showcase_title || "Compra directa";
+  }
+
+  if (heroShowcaseStatus) {
+    heroShowcaseStatus.textContent = map.hero_showcase_status || "Disponible";
+  }
+
+  if (!heroShowcaseGrid) {
+    return;
+  }
+
+  const fallbackCards = [
+    ["Streaming", "Netflix Perfil", "Entrega inmediata"],
+    ["Cuenta", "Disney Premium", "Acceso activo"],
+    ["Combo", "Netflix + Disney", "Precio especial"],
+    ["Curso", "Ventas Digitales", "Acceso digital"],
+  ];
+
+  heroShowcaseGrid.innerHTML = fallbackCards
+    .map((fallback, index) => {
+      const position = index + 1;
+      const image = normalizeShowcaseImage(map[`hero_card_${position}_imagen`]);
+      const imageMarkup = image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" />` : "";
+
+      return `
+        <article class="poster-card ${image ? "has-image" : ""}" data-showcase-card="${position}">
+          ${imageMarkup}
+          <span>${escapeHtml(map[`hero_card_${position}_categoria`] || fallback[0])}</span>
+          <strong>${escapeHtml(map[`hero_card_${position}_titulo`] || fallback[1])}</strong>
+          <small>${escapeHtml(map[`hero_card_${position}_texto`] || fallback[2])}</small>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderCategorySection(map) {
+  if (categorySectionLabel) {
+    categorySectionLabel.textContent = map.categorias_label || "Categorias";
+  }
+
+  if (categorySectionTitle) {
+    categorySectionTitle.textContent = map.categorias_titulo || "Explora productos listos para compra en pocos pasos.";
+  }
+
+  if (categorySectionText) {
+    categorySectionText.innerHTML = formatRichText(map.categorias_texto || "Revisa disponibilidad, compara precios y compra sin perder tiempo entre mensajes.");
+  }
+
+  if (!categoryGrid) {
+    return;
+  }
+
+  const fallbackCards = [
+    ["TV", "Cuentas de streaming", "Perfiles y cuentas completas para peliculas, series y deportes.", "Comprar ahora"],
+    ["ED", "Cursos digitales", "Accesos educativos, herramientas y capacitaciones con entrega digital.", "Ver opciones"],
+    ["PK", "Combos especiales", "Paquetes con varios servicios agrupados en una sola compra.", "Cotizar combo"],
+  ];
+
+  categoryGrid.innerHTML = fallbackCards
+    .map((fallback, index) => {
+      const position = index + 1;
+      const image = normalizeShowcaseImage(map[`categoria_card_${position}_imagen`]);
+      const imageMarkup = image ? `<img class="category-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" />` : "";
+
+      return `
+        <article class="category-card ${image ? "has-image" : ""}" data-category-card="${position}">
+          ${imageMarkup}
+          <div class="card-icon">${escapeHtml(map[`categoria_card_${position}_icono`] || fallback[0])}</div>
+          <h3>${escapeHtml(map[`categoria_card_${position}_titulo`] || fallback[1])}</h3>
+          <p>${formatRichText(map[`categoria_card_${position}_texto`] || fallback[2])}</p>
+          <a href="${escapeHtml(map[`categoria_card_${position}_link`] || "#pedido")}">${escapeHtml(map[`categoria_card_${position}_cta`] || fallback[3])}</a>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 function renderSiteSettings(settings) {
   const map = settingsToMap(settings.map(normalizeSiteSetting));
   const salesNumber = map.ventas_whatsapp || whatsappNumber;
@@ -467,6 +585,9 @@ function renderSiteSettings(settings) {
   if (scheduleNote && map.horario_nota) {
     scheduleNote.innerHTML = formatRichText(map.horario_nota);
   }
+
+  renderHeroShowcase(map);
+  renderCategorySection(map);
 }
 
 async function loadSiteSettings() {

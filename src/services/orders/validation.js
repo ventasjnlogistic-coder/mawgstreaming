@@ -110,7 +110,11 @@ function normalizeInventoryAssignments(value, order = {}) {
       fecha_vencimiento_cliente: String(entry.fecha_vencimiento_cliente || "").trim(),
       datos_entrega: String(entry.datos_entrega || "").trim(),
       cuenta_usuario: String(entry.cuenta_usuario || "").trim(),
-      cuenta_clave: String(entry.cuenta_clave || "").trim(),
+      cuenta_clave: String(entry.cuenta_clave ?? "").trim(),
+      url_producto: String(entry.url_producto || "").trim(),
+      link_bot: String(entry.link_bot || "").trim(),
+      usuario_bot: String(entry.usuario_bot ?? "").trim(),
+      contrasena_bot: String(entry.contrasena_bot ?? "").trim(),
       notas_entrega: String(entry.notas_entrega || "").trim(),
     }))
     .filter((entry) => entry.inventario_id || entry.componente_nombre || entry.producto_id);

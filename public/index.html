@@ -56,8 +56,8 @@
           </div>
           <div class="hero-stats" aria-label="Indicadores del catalogo">
             <div>
-              <strong>48h</strong>
-              <span>reposicion promedio</span>
+              <strong>24h a 48h</strong>
+              <span>Soporte</span>
             </div>
             <div>
               <strong>24/7</strong>
@@ -78,28 +78,28 @@
           </div>
           <div class="showcase-header">
             <div>
-              <p>Stock actualizado</p>
-              <h2>Compra directa</h2>
+              <p id="heroShowcaseLabel">Stock actualizado</p>
+              <h2 id="heroShowcaseTitle">Compra directa</h2>
             </div>
-            <span class="status-pill">Disponible</span>
+            <span class="status-pill" id="heroShowcaseStatus">Disponible</span>
           </div>
-          <div class="poster-grid">
-            <article class="poster-card accent-red">
+          <div class="poster-grid" id="heroShowcaseGrid">
+            <article class="poster-card accent-red" data-showcase-card="1">
               <span>Streaming</span>
               <strong>Netflix Perfil</strong>
               <small>Entrega inmediata</small>
             </article>
-            <article class="poster-card accent-blue">
+            <article class="poster-card accent-blue" data-showcase-card="2">
               <span>Cuenta</span>
               <strong>Disney Premium</strong>
               <small>Acceso activo</small>
             </article>
-            <article class="poster-card accent-green">
+            <article class="poster-card accent-green" data-showcase-card="3">
               <span>Combo</span>
               <strong>Netflix + Disney</strong>
               <small>Precio especial</small>
             </article>
-            <article class="poster-card accent-gold">
+            <article class="poster-card accent-gold" data-showcase-card="4">
               <span>Curso</span>
               <strong>Ventas Digitales</strong>
               <small>Acceso digital</small>
@@ -108,43 +108,43 @@
         </div>
       </section>
 
-      <section class="section categories" id="catalogo">
-        <div class="section-heading">
-          <p class="eyebrow">Categorias</p>
-          <h2>Explora productos listos para compra en pocos pasos.</h2>
-          <p>
-            Revisa disponibilidad, compara precios y compra sin perder tiempo entre mensajes.
-          </p>
-        </div>
-        <div class="category-grid">
-          <article class="category-card">
-            <div class="card-icon">TV</div>
-            <h3>Cuentas de streaming</h3>
-            <p>Perfiles y cuentas completas para peliculas, series y deportes.</p>
-            <a href="#pedido">Comprar ahora</a>
-          </article>
-          <article class="category-card">
-            <div class="card-icon">ED</div>
-            <h3>Cursos digitales</h3>
-            <p>Accesos educativos, herramientas y capacitaciones con entrega digital.</p>
-            <a href="#pedido">Ver opciones</a>
-          </article>
-          <article class="category-card">
-            <div class="card-icon">PK</div>
-            <h3>Combos especiales</h3>
-            <p>Paquetes con varios servicios agrupados en una sola compra.</p>
-            <a href="#pedido">Cotizar combo</a>
-          </article>
-        </div>
-      </section>
-
-      <section class="section featured">
+      <section class="section featured" id="catalogo">
         <div class="section-heading compact">
           <p class="eyebrow">Productos destacados</p>
           <h2>Opciones listas para comprar.</h2>
         </div>
         <div class="product-grid" id="productCatalog" aria-live="polite"></div>
         <p class="catalog-message storefront-status" id="storefrontStatus" aria-live="polite"></p>
+      </section>
+
+      <section class="section categories" id="categorias">
+        <div class="section-heading">
+          <p class="eyebrow" id="categorySectionLabel">Categorias</p>
+          <h2 id="categorySectionTitle">Explora productos listos para compra en pocos pasos.</h2>
+          <p id="categorySectionText">
+            Revisa disponibilidad, compara precios y compra sin perder tiempo entre mensajes.
+          </p>
+        </div>
+        <div class="category-grid" id="categoryGrid">
+          <article class="category-card" data-category-card="1">
+            <div class="card-icon">TV</div>
+            <h3>Cuentas de streaming</h3>
+            <p>Perfiles y cuentas completas para peliculas, series y deportes.</p>
+            <a href="#pedido">Comprar ahora</a>
+          </article>
+          <article class="category-card" data-category-card="2">
+            <div class="card-icon">ED</div>
+            <h3>Cursos digitales</h3>
+            <p>Accesos educativos, herramientas y capacitaciones con entrega digital.</p>
+            <a href="#pedido">Ver opciones</a>
+          </article>
+          <article class="category-card" data-category-card="3">
+            <div class="card-icon">PK</div>
+            <h3>Combos especiales</h3>
+            <p>Paquetes con varios servicios agrupados en una sola compra.</p>
+            <a href="#pedido">Cotizar combo</a>
+          </article>
+        </div>
       </section>
 
       <section class="section benefits" id="beneficios">

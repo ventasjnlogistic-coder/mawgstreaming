@@ -11,11 +11,20 @@ const DEFAULT_MESSAGE_TEMPLATES = [
   {
     id: "renovacion",
     nombre: "Renovacion",
-    asunto: "Renovacion de servicio",
+    asunto: "Alerta de vencimiento",
     contenido:
-      ":estrella: Hola {{cliente_nombre}}, tu servicio {{producto_nombre}} esta por vencer el {{vencimiento_formateado}}.\n\n:alerta: Puedes renovar por {{monto}}.",
+      "*:alerta: ALERTA DE VENCIMIENTO :alerta:*\n\n*:alerta: Hola {{cliente_nombre}}*\n\nPlataforma: {{producto_nombre}}\nPerfil: {{perfil_nombre}}\nVencimiento: {{vencimiento_formateado}}\n\n*:ojo_dialogo: SI NO HAY RESPUESTA, SE REALIZARA EL CORTE DEL SERVICIO.*\n\n*:check: CONFIRMAR LA RENOVACION DE SU SERVICIO*\n\n*:verde: PAGUE EN DALE - desde YAPE :morado:*\n                        *921 217 484*\n         :corona: A nombre de Luis M. Farro Z. :corona:\n          *(No escribir nada en la descripcion)*\n\n*:mano_dinero: Enviar la captura de pantalla del pago realizado.*\n\n*:stop: PAGO MALVERSADO SERA REPORTADO A LA PNP :stop:*\n\n*Muchas gracias :apreton_manos:*",
     estado: "activo",
     orden: 2,
+  },
+  {
+    id: "renovacion_confirmada",
+    nombre: "Renovacion confirmada",
+    asunto: "Servicio renovado",
+    contenido:
+      "*:check: RENOVACION CONFIRMADA :check:*\n\nHola {{cliente_nombre}}, confirmamos la renovacion de tu servicio.\n\nPlataforma: {{producto_nombre}}\nPerfil: {{perfil_nombre}}\nNuevo vencimiento: {{vencimiento_formateado}}\n\nGracias por confiar en MAWG Streaming :apreton_manos:",
+    estado: "activo",
+    orden: 3,
   },
   {
     id: "corte_servicio",
@@ -24,7 +33,7 @@ const DEFAULT_MESSAGE_TEMPLATES = [
     contenido:
       ":alerta: Hola {{cliente_nombre}}, tu servicio {{producto_nombre}} ha sido cortado por falta de pago.\n\nPedido: {{pedido_id}}\nVencimiento: {{vencimiento_formateado}}\n\n:estrella: Para reactivarlo, por favor realiza el pago de {{monto}}.",
     estado: "activo",
-    orden: 3,
+    orden: 4,
   },
   {
     id: "actualizacion_datos",
@@ -33,7 +42,7 @@ const DEFAULT_MESSAGE_TEMPLATES = [
     contenido:
       ":alerta::megafono: MAWG Streaming te informa: :check::pin_marcador:\n\n:check: ACTUALIZACION DE DATOS :check: | {{producto_nombre}}\n\n:laptop: CORREO: {{cuenta_usuario}}\n:candado: CONTRASENA: {{cuenta_clave}}\n\n:perfil_hombre: PERFIL: {{perfil_nombre}}\n:pin_personal: PIN: {{pin}}\n:calendario: FECHA DE RENOVACION: {{vencimiento_formateado}}",
     estado: "activo",
-    orden: 4,
+    orden: 5,
   },
   {
     id: "confirmacion_pago",
@@ -41,7 +50,7 @@ const DEFAULT_MESSAGE_TEMPLATES = [
     asunto: "Pago confirmado",
     contenido: "Hola {{cliente_nombre}}, confirmamos el pago de {{producto_nombre}}. Estamos preparando la entrega.",
     estado: "activo",
-    orden: 5,
+    orden: 6,
   },
   {
     id: "reclamo",
@@ -49,7 +58,7 @@ const DEFAULT_MESSAGE_TEMPLATES = [
     asunto: "Revision de cuenta",
     contenido: "Hola {{proveedor}}, necesitamos revisar la cuenta {{cuenta_usuario}} del producto {{producto_nombre}}.",
     estado: "activo",
-    orden: 6,
+    orden: 7,
   },
 ];
 

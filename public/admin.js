@@ -35,6 +35,13 @@ const whatsappEmojiMap = {
   ":perfil_hombre:": String.fromCodePoint(0x1f9d4),
   ":pin_personal:": String.fromCodePoint(0x1fac6),
   ":check:": String.fromCodePoint(0x2705),
+  ":ojo_dialogo:": String.fromCodePoint(0x1f441, 0xfe0f, 0x200d, 0x1f5e8, 0xfe0f),
+  ":verde:": String.fromCodePoint(0x1f7e2),
+  ":morado:": String.fromCodePoint(0x1f7e3),
+  ":corona:": String.fromCodePoint(0x1f451),
+  ":mano_dinero:": String.fromCodePoint(0x1faf0),
+  ":stop:": String.fromCodePoint(0x1f6d1),
+  ":apreton_manos:": String.fromCodePoint(0x1f91d),
 };
 
 const defaultProduct = {
@@ -66,6 +73,9 @@ const defaultInventoryItem = {
   referencia_compra: "",
   cuenta_usuario: "",
   cuenta_clave: "",
+  link_bot: "",
+  usuario_bot: "",
+  contrasena_bot: "",
   perfil_nombre: "",
   pin: "",
   estado: "disponible",
@@ -107,6 +117,9 @@ const defaultProviderPurchase = {
   cuenta_usuario: "",
   cuenta_clave: "",
   url_producto: "",
+  link_bot: "",
+  usuario_bot: "",
+  contrasena_bot: "",
   metodo_pago: "",
   referencia_pago: "",
   fecha_compra: "",
@@ -165,12 +178,28 @@ const dirtyState = document.querySelector("#dirtyState");
 const formTitle = document.querySelector("#formTitle");
 const jsonOutput = document.querySelector("#jsonOutput");
 const adminStatus = document.querySelector("#adminStatus");
+const statusToast = document.createElement("div");
+let statusToastTimer = null;
+
+statusToast.className = "admin-toast";
+statusToast.setAttribute("role", "status");
+statusToast.setAttribute("aria-live", "polite");
+document.body.appendChild(statusToast);
 const productPreview = document.querySelector("#productPreview");
 const searchProducts = document.querySelector("#searchProducts");
 const deleteModal = document.querySelector("#deleteModal");
 const confirmDeleteCheck = document.querySelector("#confirmDeleteCheck");
 const confirmDeleteButton = document.querySelector("#confirmDeleteButton");
 const deleteMessage = document.querySelector("#deleteMessage");
+const groupedRenewalModal = document.querySelector("#groupedRenewalModal");
+const groupedRenewalList = document.querySelector("#groupedRenewalList");
+const bulkInventoryModal = document.querySelector("#bulkInventoryModal");
+const bulkInventoryForm = document.querySelector("#bulkInventoryForm");
+const bulkInventoryProductFilter = document.querySelector("#bulkInventoryProductFilter");
+const bulkInventoryPreviewList = document.querySelector("#bulkInventoryPreviewList");
+const bulkInventoryPreviewCount = document.querySelector("#bulkInventoryPreviewCount");
+const previewBulkInventoryButton = document.querySelector("#previewBulkInventoryButton");
+const applyBulkInventoryButton = document.querySelector("#applyBulkInventoryButton");
 const logoutButton = document.querySelector("#logoutButton");
 const orderList = document.querySelector("#adminOrderList");
 const orderCount = document.querySelector("#orderCount");
@@ -198,6 +227,15 @@ const inventoryFormTitle = document.querySelector("#inventoryFormTitle");
 const inventoryProductSelect = document.querySelector("#inventoryProductSelect");
 const searchInventory = document.querySelector("#searchInventory");
 const inventoryStatusFilter = document.querySelector("#inventoryStatusFilter");
+const inventoryProductFilter = document.querySelector("#inventoryProductFilter");
+const inventoryClientFilter = document.querySelector("#inventoryClientFilter");
+const inventoryEmailFilter = document.querySelector("#inventoryEmailFilter");
+const inventoryPhoneFilter = document.querySelector("#inventoryPhoneFilter");
+const inventoryDueStartFilter = document.querySelector("#inventoryDueStartFilter");
+const inventoryDueEndFilter = document.querySelector("#inventoryDueEndFilter");
+const clearInventoryFiltersButton = document.querySelector("#clearInventoryFiltersButton");
+const notifyGroupedRenewalsButton = document.querySelector("#notifyGroupedRenewalsButton");
+const bulkInventoryUpdateButton = document.querySelector("#bulkInventoryUpdateButton");
 const newInventoryButton = document.querySelector("#newInventoryButton");
 const renewInventoryButton = document.querySelector("#renewInventoryButton");
 const notifyRenewalButton = document.querySelector("#notifyRenewalButton");
@@ -284,6 +322,8 @@ let selectedRenewalId = "";
 let selectedTemplateId = "";
 let selectedSiteSettingId = "";
 let hasChanges = false;
+let groupedRenewalModalGroups = [];
+let bulkInventoryPreviewItems = [];
 const orderStatuses = ["pendiente de pago", "comprobante recibido", "pagado", "entregado", "cancelado"];
 const renewalStatuses = ["pendiente_aviso", "avisado", "comprobante_recibido", "pagado", "renovado", "vencido", "cancelado"];
 const adminViewCopy = {
@@ -607,8 +647,11 @@ function normalizeOrderAssignments(value) {
       fecha_vencimiento_cliente: String(entry.fecha_vencimiento_cliente || "").trim(),
       datos_entrega: String(entry.datos_entrega || "").trim(),
       cuenta_usuario: String(entry.cuenta_usuario || "").trim(),
-      cuenta_clave: String(entry.cuenta_clave || "").trim(),
+      cuenta_clave: String(entry.cuenta_clave ?? "").trim(),
       url_producto: String(entry.url_producto || "").trim(),
+      link_bot: String(entry.link_bot || "").trim(),
+      usuario_bot: String(entry.usuario_bot ?? "").trim(),
+      contrasena_bot: String(entry.contrasena_bot ?? "").trim(),
       notas_entrega: String(entry.notas_entrega || "").trim(),
     }))
     .filter((entry) => entry.inventario_id || entry.componente_nombre || entry.producto_id);
@@ -631,6 +674,9 @@ function normalizeInventoryItem(item = {}) {
     pin: String(item.pin ?? "").trim(),
     referencia_compra: String(item.referencia_compra || "").trim(),
     url_producto: String(item.url_producto || "").trim(),
+    link_bot: String(item.link_bot || "").trim(),
+    usuario_bot: String(item.usuario_bot ?? "").trim(),
+    contrasena_bot: String(item.contrasena_bot ?? "").trim(),
     estado_control: String(item.estado_control || "").trim(),
     fecha_vencimiento_proveedor: String(item.fecha_vencimiento_proveedor || "").trim(),
     estado: String(item.estado || "disponible").trim().toLowerCase(),
@@ -664,8 +710,11 @@ function normalizeProviderPurchase(purchase = {}) {
     costo_total: purchase.costo_total ?? "",
     costo_unitario: purchase.costo_unitario ?? "",
     cuenta_usuario: String(purchase.cuenta_usuario || "").trim(),
-    cuenta_clave: String(purchase.cuenta_clave || "").trim(),
+    cuenta_clave: String(purchase.cuenta_clave ?? "").trim(),
     url_producto: String(purchase.url_producto || "").trim(),
+    link_bot: String(purchase.link_bot || "").trim(),
+    usuario_bot: String(purchase.usuario_bot ?? "").trim(),
+    contrasena_bot: String(purchase.contrasena_bot ?? "").trim(),
     estado: purchase.estado || "pendiente",
   };
 }
@@ -732,8 +781,8 @@ async function apiRequest(url, options = {}) {
   }
 
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || "No se pudo completar la operacion.");
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.error || `No se pudo completar la operacion. Estado HTTP ${response.status}.`);
   }
 
   if (response.status === 204) {
@@ -744,12 +793,26 @@ async function apiRequest(url, options = {}) {
 }
 
 function setStatus(message, isError = false) {
-  if (!adminStatus) {
+  const text = String(message || "").trim();
+
+  if (adminStatus) {
+    adminStatus.textContent = text;
+    adminStatus.classList.toggle("is-error", isError);
+  }
+
+  if (!text) {
+    statusToast.classList.remove("is-visible", "is-error");
     return;
   }
 
-  adminStatus.textContent = message;
-  adminStatus.classList.toggle("is-error", isError);
+  statusToast.textContent = text;
+  statusToast.classList.toggle("is-error", isError);
+  statusToast.classList.add("is-visible");
+
+  window.clearTimeout(statusToastTimer);
+  statusToastTimer = window.setTimeout(() => {
+    statusToast.classList.remove("is-visible");
+  }, isError ? 6500 : 4200);
 }
 
 async function loadAdminSession() {
@@ -1538,6 +1601,9 @@ function getDeliveryTemplateValues(order) {
     perfil_nombre: resolvedAccount.perfil_nombre,
     pin: resolvedAccount.pin,
     url_producto: resolvedAccount.url_producto,
+    link_bot: resolvedAccount.link_bot,
+    usuario_bot: resolvedAccount.usuario_bot,
+    contrasena_bot: resolvedAccount.contrasena_bot,
     fecha_vencimiento_cliente: normalizedOrder.fecha_vencimiento_cliente || firstAssignment.fecha_vencimiento_cliente || "",
     fecha_entrega: normalizedOrder.fecha_entrega || firstAssignment.fecha_entrega || "",
     vencimiento_formateado: normalizedOrder.fecha_vencimiento_cliente ? formatShortDate(normalizedOrder.fecha_vencimiento_cliente) : "",
@@ -1564,6 +1630,9 @@ function resolveDeliveryAccount(order, assignment = {}, inventoryItem = null) {
     perfil_nombre: String(assignment.perfil_nombre || source.perfil_nombre || order.perfil_nombre || "").trim(),
     pin: String(assignment.pin !== "" && assignment.pin !== undefined && assignment.pin !== null ? assignment.pin : (source.pin ?? order.pin ?? "")).trim(),
     url_producto: String(assignment.url_producto || source.url_producto || order.url_producto || "").trim(),
+    link_bot: String(assignment.link_bot || source.link_bot || order.link_bot || "").trim(),
+    usuario_bot: String(assignment.usuario_bot ?? source.usuario_bot ?? order.usuario_bot ?? "").trim(),
+    contrasena_bot: String(assignment.contrasena_bot ?? source.contrasena_bot ?? order.contrasena_bot ?? "").trim(),
   };
 }
 
@@ -1614,6 +1683,289 @@ function buildRenewalMessage(item) {
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function getGroupedRenewalCandidates() {
+  return getFilteredInventory()
+    .filter((item) => item.estado === "ocupado" && (isInventoryDueSoon(item) || isInventoryExpired(item)))
+    .map(resolveRenewalSource)
+    .filter((item) => normalizePhone(item.cliente_contacto));
+}
+
+function groupRenewalCandidatesByPhone(items) {
+  return items.reduce((groups, item) => {
+    const phone = normalizePhone(item.cliente_contacto);
+
+    if (!phone) {
+      return groups;
+    }
+
+    if (!groups.has(phone)) {
+      groups.set(phone, {
+        phone,
+        cliente_nombre: item.cliente_nombre || "",
+        items: [],
+      });
+    }
+
+    const group = groups.get(phone);
+    if (!group.cliente_nombre && item.cliente_nombre) {
+      group.cliente_nombre = item.cliente_nombre;
+    }
+    group.items.push(item);
+    return groups;
+  }, new Map());
+}
+
+function getOldestGroupExpirationDays(group) {
+  const days = group.items.map((item) => daysUntil(item.fecha_vencimiento_cliente)).filter((value) => value !== null);
+  return days.length ? Math.min(...days) : 9999;
+}
+
+function buildGroupedRenewalMessage(group) {
+  const clientName = group.cliente_nombre || "cliente";
+  const lines = [...group.items]
+    .sort((a, b) => (daysUntil(a.fecha_vencimiento_cliente) ?? 9999) - (daysUntil(b.fecha_vencimiento_cliente) ?? 9999))
+    .map((item, index) => {
+      const expiration = formatShortDate(item.fecha_vencimiento_cliente);
+
+      return [
+        `${index + 1}. *${item.producto_nombre || item.producto_id || "Servicio"}*`,
+        item.perfil_nombre ? `   Perfil: ${item.perfil_nombre}` : "",
+        expiration ? `   Vencimiento: ${expiration}` : "",
+        item.monto || item.precio_venta || item.precio_venta_sugerido ? `   Monto: ${formatPrice(item.monto || item.precio_venta || item.precio_venta_sugerido)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    });
+
+  return [
+    "*:alerta: ALERTA DE VENCIMIENTO :alerta:*",
+    "",
+    `*:alerta: Hola ${clientName}*`,
+    "",
+    "Tienes los siguientes servicios por vencer:",
+    "",
+    lines.join("\n\n"),
+    "",
+    "*:ojo_dialogo: SI NO HAY RESPUESTA, SE REALIZARA EL CORTE DEL SERVICIO.*",
+    "",
+    "*:check: CONFIRMAR LA RENOVACION DE SU SERVICIO*",
+    "",
+    "*:verde: PAGUE EN DALE - desde YAPE :morado:*",
+    "                        *921 217 484*",
+    "         :corona: A nombre de Luis M. Farro Z. :corona:",
+    "          *(No escribir nada en la descripcion)*",
+    "",
+    "*:mano_dinero: Enviar la captura de pantalla del pago realizado.*",
+    "",
+    "*:stop: PAGO MALVERSADO SERA REPORTADO A LA PNP :stop:*",
+    "",
+    "*Muchas gracias :apreton_manos:*",
+  ].join("\n");
+}
+
+function renderGroupedRenewalModal(groups) {
+  if (!groupedRenewalList) {
+    return;
+  }
+
+  groupedRenewalList.innerHTML = groups
+    .map((group, index) => {
+      const accounts = [...group.items]
+        .sort((a, b) => (daysUntil(a.fecha_vencimiento_cliente) ?? 9999) - (daysUntil(b.fecha_vencimiento_cliente) ?? 9999))
+        .map((item) => {
+          const expirationStatus = getExpirationStatus(item.fecha_vencimiento_cliente);
+          return `
+            <li>
+              <strong>${escapeHtml(item.producto_nombre || item.producto_id || "Servicio")}</strong>
+              <span>${escapeHtml(item.perfil_nombre || "Sin perfil")} | ${escapeHtml(formatShortDate(item.fecha_vencimiento_cliente) || "Sin vencimiento")}</span>
+              <em class="expiration-pill is-${escapeHtml(expirationStatus.level)}">${escapeHtml(expirationStatus.label)}</em>
+            </li>
+          `;
+        })
+        .join("");
+
+      return `
+        <article class="grouped-renewal-card">
+          <div>
+            <p class="eyebrow">Cliente</p>
+            <h3>${escapeHtml(group.cliente_nombre || "Cliente sin nombre")}</h3>
+            <small>${escapeHtml(group.phone)} | ${group.items.length} cuenta${group.items.length === 1 ? "" : "s"}</small>
+          </div>
+          <ul>${accounts}</ul>
+          <button class="button button-primary compact-button send-grouped-renewal-button" type="button" data-group-index="${index}">
+            Enviar alerta
+          </button>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function openGroupedRenewalModal() {
+  const candidates = getGroupedRenewalCandidates();
+  const groups = [...groupRenewalCandidatesByPhone(candidates).values()]
+    .filter((group) => group.items.length > 0)
+    .sort((left, right) => getOldestGroupExpirationDays(left) - getOldestGroupExpirationDays(right));
+
+  if (groups.length === 0) {
+    setStatus("No hay cuentas ocupadas vencidas o por vencer con celular en los filtros actuales.", true);
+    return;
+  }
+
+  groupedRenewalModalGroups = groups;
+  renderGroupedRenewalModal(groups);
+  groupedRenewalModal?.classList.add("is-open");
+  groupedRenewalModal?.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  setStatus(`Se encontraron ${groups.length} cliente${groups.length === 1 ? "" : "s"} con cuentas vencidas o por vencer.`);
+}
+
+function closeGroupedRenewalModal() {
+  groupedRenewalModal?.classList.remove("is-open");
+  groupedRenewalModal?.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+function getBulkInventoryFilters() {
+  const formData = new FormData(bulkInventoryForm);
+  return {
+    producto: String(formData.get("filter_producto") || "").trim(),
+    cuenta_usuario: String(formData.get("filter_cuenta_usuario") || "").trim(),
+    proveedor: String(formData.get("filter_proveedor") || "").trim(),
+    estado: String(formData.get("filter_estado") || "").trim(),
+  };
+}
+
+function getBulkInventoryPatch() {
+  const formData = new FormData(bulkInventoryForm);
+  const patch = {};
+
+  bulkInventoryForm?.querySelectorAll("[data-bulk-field]:checked").forEach((checkbox) => {
+    const field = checkbox.dataset.bulkField;
+    patch[field] = formData.get(field) ?? "";
+  });
+
+  return patch;
+}
+
+function inventoryMatchesBulkUiFilters(item, filters) {
+  const product = String(filters.producto || "").toLowerCase();
+  const accountUser = String(filters.cuenta_usuario || "").toLowerCase();
+  const provider = String(filters.proveedor || "").toLowerCase();
+  const matchesProduct =
+    !product ||
+    String(item.producto_id || "").toLowerCase().includes(product) ||
+    String(item.producto_nombre || "").toLowerCase().includes(product);
+  const matchesUser = !accountUser || String(item.cuenta_usuario || "").toLowerCase().includes(accountUser);
+  const matchesProvider = !provider || String(item.proveedor || "").toLowerCase().includes(provider);
+  const matchesStatus = !filters.estado || item.estado === filters.estado;
+
+  return matchesProduct && matchesUser && matchesProvider && matchesStatus;
+}
+
+function renderBulkInventoryPreview() {
+  if (!bulkInventoryPreviewList || !bulkInventoryPreviewCount) {
+    return;
+  }
+
+  bulkInventoryPreviewCount.textContent = `${bulkInventoryPreviewItems.length} cuenta${bulkInventoryPreviewItems.length === 1 ? "" : "s"}`;
+  applyBulkInventoryButton.disabled = bulkInventoryPreviewItems.length === 0;
+
+  if (bulkInventoryPreviewItems.length === 0) {
+    bulkInventoryPreviewList.innerHTML = '<p class="catalog-message">No hay cuentas para actualizar con esos filtros.</p>';
+    return;
+  }
+
+  bulkInventoryPreviewList.innerHTML = bulkInventoryPreviewItems
+    .slice(0, 80)
+    .map((item) => {
+      const expirationStatus = getExpirationStatus(item.fecha_vencimiento_cliente);
+      return `
+        <article class="grouped-renewal-card bulk-preview-card">
+          <div>
+            <p class="eyebrow">${escapeHtml(item.estado || "disponible")}</p>
+            <h3>${escapeHtml(item.producto_nombre || item.producto_id || "Producto")}</h3>
+            <small>${escapeHtml(item.inventario_id)} | ${escapeHtml(item.proveedor || "Sin proveedor")}</small>
+          </div>
+          <ul>
+            <li>
+              <strong>${escapeHtml(item.cuenta_usuario || "Sin usuario")}</strong>
+              <span>${escapeHtml(item.cliente_nombre || "Sin cliente")} | ${escapeHtml(item.cliente_contacto || "Sin contacto")}</span>
+              <em class="expiration-pill is-${escapeHtml(expirationStatus.level)}">${escapeHtml(expirationStatus.label)}</em>
+            </li>
+          </ul>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function previewBulkInventoryUpdate() {
+  const filters = getBulkInventoryFilters();
+
+  if (!filters.producto) {
+    bulkInventoryPreviewItems = [];
+    renderBulkInventoryPreview();
+    setStatus("Selecciona un producto para previsualizar la actualizacion masiva.", true);
+    return;
+  }
+
+  bulkInventoryPreviewItems = inventoryItems
+    .filter((item) => inventoryMatchesBulkUiFilters(item, filters))
+    .sort((left, right) => String(left.producto_nombre || left.producto_id).localeCompare(String(right.producto_nombre || right.producto_id)));
+  renderBulkInventoryPreview();
+  setStatus(`Previsualizacion lista: ${bulkInventoryPreviewItems.length} cuenta${bulkInventoryPreviewItems.length === 1 ? "" : "s"}.`);
+}
+
+function openBulkInventoryModal() {
+  bulkInventoryPreviewItems = [];
+  bulkInventoryForm?.reset();
+  renderBulkInventoryPreview();
+  bulkInventoryModal?.classList.add("is-open");
+  bulkInventoryModal?.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+function closeBulkInventoryModal() {
+  bulkInventoryModal?.classList.remove("is-open");
+  bulkInventoryModal?.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+function buildRenewalConfirmationMessage(renewal, inventoryItem = {}) {
+  const source = resolveRenewalSource({
+    ...inventoryItem,
+    ...renewal,
+    fecha_vencimiento_cliente: renewal.vencimiento_nuevo || inventoryItem.fecha_vencimiento_cliente || "",
+  });
+  const expiration = formatShortDate(source.fecha_vencimiento_cliente);
+  const template = getActiveMessageTemplate("renovacion_confirmada");
+  const values = {
+    ...source,
+    fecha_vencimiento_cliente: source.fecha_vencimiento_cliente || "",
+    vencimiento_formateado: expiration,
+    monto: renewal.monto || source.monto || source.precio_venta_sugerido || "",
+  };
+
+  if (template?.contenido) {
+    return renderTemplateMessage(template.contenido, values).trim();
+  }
+
+  return [
+    "*:check: RENOVACION CONFIRMADA :check:*",
+    "",
+    `Hola ${source.cliente_nombre || ""}, confirmamos la renovacion de tu servicio.`.trim(),
+    "",
+    `Plataforma: ${source.producto_nombre || source.producto_id || "Servicio"}`,
+    source.perfil_nombre ? `Perfil: ${source.perfil_nombre}` : "",
+    source.fecha_vencimiento_cliente ? `Nuevo vencimiento: ${expiration}` : "",
+    "",
+    "Gracias por confiar en MAWG Streaming :apreton_manos:",
+  ]
+    .filter((line) => line !== null && line !== undefined)
+    .join("\n");
 }
 
 function buildServiceCutMessage(item) {
@@ -1679,7 +2031,7 @@ function resolveRenewalSource(item = {}) {
     ...(linkedOrder || {}),
     cliente_nombre: String(linkedOrder?.cliente_nombre || normalizedItem.cliente_nombre || "").trim(),
     cliente_contacto: String(linkedOrder?.cliente_contacto || normalizedItem.cliente_contacto || "").trim(),
-    fecha_vencimiento_cliente: String(linkedOrder?.fecha_vencimiento_cliente || normalizedItem.fecha_vencimiento_cliente || "").trim(),
+    fecha_vencimiento_cliente: String(normalizedItem.fecha_vencimiento_cliente || linkedOrder?.fecha_vencimiento_cliente || "").trim(),
     producto_nombre: String(linkedOrder?.producto_nombre || normalizedItem.producto_nombre || "").trim(),
     producto_id: String(linkedOrder?.producto_id || normalizedItem.producto_id || "").trim(),
     pedido_id: String(linkedOrder?.pedido_id || normalizedItem.pedido_id || "").trim(),
@@ -1749,6 +2101,47 @@ function renderInventoryProductOptions() {
     ...products.map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.nombre || product.id)}</option>`),
   ].join("");
   inventoryProductSelect.value = currentValue;
+}
+
+function renderInventoryProductFilterOptions() {
+  if (!inventoryProductFilter) {
+    return;
+  }
+
+  const currentValue = inventoryProductFilter.value;
+  const optionMap = new Map();
+
+  products.forEach((product) => {
+    if (product.id || product.nombre) {
+      optionMap.set(product.id || product.nombre, product.nombre || product.id);
+    }
+  });
+
+  inventoryItems.forEach((item) => {
+    const key = item.producto_id || item.producto_nombre;
+    if (key && !optionMap.has(key)) {
+      optionMap.set(key, item.producto_nombre || item.producto_id);
+    }
+  });
+
+  inventoryProductFilter.innerHTML = [
+    '<option value="">Todos los productos</option>',
+    ...[...optionMap.entries()]
+      .sort((left, right) => String(left[1]).localeCompare(String(right[1])))
+      .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`),
+  ].join("");
+  inventoryProductFilter.value = optionMap.has(currentValue) ? currentValue : "";
+
+  if (bulkInventoryProductFilter) {
+    const currentBulkValue = bulkInventoryProductFilter.value;
+    bulkInventoryProductFilter.innerHTML = [
+      '<option value="">Selecciona producto</option>',
+      ...[...optionMap.entries()]
+        .sort((left, right) => String(left[1]).localeCompare(String(right[1])))
+        .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`),
+    ].join("");
+    bulkInventoryProductFilter.value = optionMap.has(currentBulkValue) ? currentBulkValue : "";
+  }
 }
 
 function renderManualSaleProductOptions() {
@@ -1932,6 +2325,7 @@ async function loadProducts() {
     products = sortProductsForDisplay(data.map(normalizeProduct));
     selectedId = products[0]?.id || "";
     renderInventoryProductOptions();
+    renderInventoryProductFilterOptions();
     renderManualSaleProductOptions();
     renderSupplierSelectOptions();
     if (selectedInventoryId) {
@@ -1953,15 +2347,30 @@ async function loadProducts() {
 function getFilteredInventory() {
   const query = (searchInventory?.value || "").toLowerCase().trim();
   const status = inventoryStatusFilter?.value || "";
+  const product = inventoryProductFilter?.value || "";
+  const client = (inventoryClientFilter?.value || "").toLowerCase().trim();
+  const email = (inventoryEmailFilter?.value || "").toLowerCase().trim();
+  const phone = normalizePhone(inventoryPhoneFilter?.value || "");
+  const dueStart = getDateOnly(inventoryDueStartFilter?.value);
+  const dueEnd = getDateOnly(inventoryDueEndFilter?.value);
 
   return inventoryItems.filter((item) => {
-    const expirationStatus = getExpirationStatus(item.fecha_vencimiento_cliente);
+    const dueDate = getDateOnly(item.fecha_vencimiento_cliente);
     const matchesStatus =
       !status ||
-      (status === "vence-pronto" && expirationStatus.isSoon) ||
-      (status === "por_vencer" && (item.estado === "por_vencer" || isInventoryDueSoon(item))) ||
+      (status === "por_vencer" && isInventoryDueSoon(item)) ||
       (status === "vencido" && (item.estado === "vencido" || isInventoryExpired(item))) ||
-      (!["vence-pronto", "por_vencer", "vencido"].includes(status) && item.estado === status);
+      (!["por_vencer", "vencido"].includes(status) && item.estado === status);
+    const matchesProduct =
+      !product ||
+      productValueMatches(item.producto_id || item.producto_nombre, product) ||
+      productValueMatches(item.producto_nombre || item.producto_id, product);
+    const matchesClient = !client || String(item.cliente_nombre || "").toLowerCase().includes(client);
+    const matchesEmail = !email || String(item.cuenta_usuario || "").toLowerCase().includes(email);
+    const itemPhone = normalizePhone(item.cliente_contacto || "");
+    const matchesPhone = !phone || itemPhone.includes(phone);
+    const matchesDueStart = !dueStart || (dueDate && dueDate >= dueStart);
+    const matchesDueEnd = !dueEnd || (dueDate && dueDate <= dueEnd);
     const matchesQuery =
       !query ||
       [
@@ -1981,27 +2390,32 @@ function getFilteredInventory() {
         .toLowerCase()
         .includes(query);
 
-    return matchesStatus && matchesQuery;
+    return matchesStatus && matchesProduct && matchesClient && matchesEmail && matchesPhone && matchesDueStart && matchesDueEnd && matchesQuery;
   });
 }
 
 function renderInventoryList() {
-  if (inventoryCount) {
-    inventoryCount.textContent = `${inventoryItems.length} ${inventoryItems.length === 1 ? "cuenta" : "cuentas"}`;
-  }
-
   if (!inventoryList) {
     return;
   }
 
   const filtered = getFilteredInventory();
+  const status = inventoryStatusFilter?.value || "";
+  const sorted =
+    status === "por_vencer" || status === "vencido"
+      ? [...filtered].sort((left, right) => (daysUntil(left.fecha_vencimiento_cliente) ?? 9999) - (daysUntil(right.fecha_vencimiento_cliente) ?? 9999))
+      : filtered;
 
-  if (filtered.length === 0) {
+  if (inventoryCount) {
+    inventoryCount.textContent = `${filtered.length}/${inventoryItems.length} ${inventoryItems.length === 1 ? "cuenta" : "cuentas"}`;
+  }
+
+  if (sorted.length === 0) {
     inventoryList.innerHTML = '<p class="catalog-message">No hay cuentas para mostrar.</p>';
     return;
   }
 
-  inventoryList.innerHTML = filtered
+  inventoryList.innerHTML = sorted
     .map((item) => {
       const isActive = item.inventario_id === selectedInventoryId;
       const expirationStatus = getExpirationStatus(item.fecha_vencimiento_cliente);
@@ -2012,6 +2426,7 @@ function renderInventoryList() {
             <strong>${escapeHtml(item.producto_nombre || item.producto_id || "Producto sin nombre")}</strong>
             <small>${escapeHtml(item.inventario_id)} | ${escapeHtml(item.proveedor || "Sin proveedor")}</small>
             ${item.compra_id ? `<small>Compra proveedor: ${escapeHtml(item.compra_id)}</small>` : ""}
+            ${item.link_bot || item.usuario_bot ? `<small>Bot: ${escapeHtml(item.link_bot || "Sin link")} | Usuario: ${escapeHtml(item.usuario_bot || "Sin usuario")}</small>` : ""}
             <small>${item.pedido_id ? `Pedido: ${escapeHtml(item.pedido_id)}` : "Sin asignar"} | Vence: ${escapeHtml(formatDate(item.fecha_vencimiento_cliente))}</small>
             <small>Cliente: ${escapeHtml(item.cliente_nombre || "Sin cliente")} | Contacto: ${escapeHtml(item.cliente_contacto || "Sin contacto")}</small>
             <small>
@@ -2093,6 +2508,7 @@ async function loadInventory() {
     inventoryItems = (await apiRequest("/api/admin/inventario")).map(normalizeInventoryItem);
     inventoryItems.sort((left, right) => String(left.producto_nombre || left.producto_id).localeCompare(String(right.producto_nombre || right.producto_id)));
     selectedInventoryId = selectedInventoryId || inventoryItems[0]?.inventario_id || "";
+    renderInventoryProductFilterOptions();
     renderInventoryList();
     fillInventoryForm(inventoryItems.find((item) => item.inventario_id === selectedInventoryId) || defaultInventoryItem);
     renderOrders();
@@ -2418,6 +2834,7 @@ function renderProviderPurchases() {
             <strong>${escapeHtml(purchase.producto_nombre || purchase.producto_id || "Producto")}</strong>
             <small>${escapeHtml(purchase.compra_id)} | ${escapeHtml(purchase.proveedor_nombre || purchase.proveedor_id || "Sin proveedor")}</small>
             <small>Cant.: ${escapeHtml(purchase.cantidad || "0")} | Total: ${escapeHtml(formatPrice(purchase.costo_total))} | Unit.: ${escapeHtml(formatPrice(purchase.costo_unitario))}</small>
+            ${purchase.link_bot || purchase.usuario_bot ? `<small>Bot: ${escapeHtml(purchase.link_bot || "Sin link")} | Usuario: ${escapeHtml(purchase.usuario_bot || "Sin usuario")}</small>` : ""}
             <small>${purchase.estado === "recibido" ? "Inventario: se genera automaticamente si faltan cuentas" : "Inventario: pendiente de recibir"}</small>
             <small>
               <span class="expiration-pill is-${escapeHtml(providerExpirationStatus.level)}">Proveedor: ${escapeHtml(providerExpirationStatus.label)}</span>
@@ -2671,9 +3088,14 @@ function renderRenewalDueList() {
             <small>${item.cliente_contacto ? `Contacto: ${escapeHtml(item.cliente_contacto)}` : "Contacto pendiente en inventario"}</small>
             <small><span class="expiration-pill is-${escapeHtml(expiration.level)}">${escapeHtml(expiration.label)}</span></small>
           </div>
-          <button class="button button-secondary compact-button create-renewal-button" type="button" data-inventory-id="${escapeHtml(item.inventario_id)}">
-            Crear renovacion
-          </button>
+          <div class="renewal-due-actions">
+            <button class="button button-primary compact-button notify-renewal-due-button" type="button" data-inventory-id="${escapeHtml(item.inventario_id)}">
+              Avisar renovacion
+            </button>
+            <button class="button button-secondary compact-button create-renewal-button" type="button" data-inventory-id="${escapeHtml(item.inventario_id)}">
+              Crear renovacion
+            </button>
+          </div>
         </article>
       `;
     })
@@ -2743,6 +3165,9 @@ function renderRenewalEditor() {
         <button class="button button-secondary" type="submit">Guardar renovacion</button>
         <button class="button button-primary confirm-renewal-button" type="button" ${renewal.estado === "renovado" ? "disabled" : ""}>
           Confirmar pago y renovar
+        </button>
+        <button class="button button-secondary notify-renewal-confirmation-button" type="button" ${renewal.estado === "renovado" ? "" : "disabled"}>
+          Enviar confirmacion
         </button>
       </div>
     </form>
@@ -3094,6 +3519,7 @@ async function saveRenewal(form) {
 
 async function confirmRenewal(form) {
   const renewalId = form.dataset.renewalId;
+  let updatedItem = null;
   const result = await apiRequest(`/api/admin/renovaciones/${encodeURIComponent(renewalId)}/confirmar`, {
     method: "POST",
     headers: {},
@@ -3107,7 +3533,7 @@ async function confirmRenewal(form) {
   }
 
   if (result.item) {
-    const updatedItem = normalizeInventoryItem(result.item);
+    updatedItem = normalizeInventoryItem(result.item);
     const itemIndex = inventoryItems.findIndex((item) => item.inventario_id === updatedItem.inventario_id);
     if (itemIndex >= 0) {
       inventoryItems[itemIndex] = updatedItem;
@@ -3118,6 +3544,46 @@ async function confirmRenewal(form) {
   renderInventoryList();
   await loadOrders();
   setStatus(`Renovacion ${renewalId} confirmada.`);
+
+  const confirmationSource = resolveRenewalSource({
+    ...(updatedItem || {}),
+    ...saved,
+    fecha_vencimiento_cliente: saved.vencimiento_nuevo || updatedItem?.fecha_vencimiento_cliente || "",
+  });
+  const href = buildWhatsAppUrl(confirmationSource.cliente_contacto, buildRenewalConfirmationMessage(saved, updatedItem || {}));
+
+  if (href) {
+    openWhatsAppLink(href);
+  }
+}
+
+function sendRenewalConfirmationMessage(renewalId) {
+  const renewal = renewals.find((entry) => entry.renovacion_id === renewalId);
+  const inventoryItem = inventoryItems.find((item) => item.inventario_id === renewal?.inventario_id) || {};
+
+  if (!renewal) {
+    setStatus("Selecciona una renovacion para enviar la confirmacion.", true);
+    return;
+  }
+
+  const confirmationSource = resolveRenewalSource({
+    ...inventoryItem,
+    ...renewal,
+    fecha_vencimiento_cliente: renewal.vencimiento_nuevo || inventoryItem.fecha_vencimiento_cliente || "",
+  });
+  const href = buildWhatsAppUrl(confirmationSource.cliente_contacto, buildRenewalConfirmationMessage(renewal, inventoryItem));
+
+  if (!href) {
+    setStatus("La renovacion no tiene contacto del cliente.", true);
+    return;
+  }
+
+  if (!openWhatsAppLink(href)) {
+    setStatus("No se pudo abrir WhatsApp.", true);
+    return;
+  }
+
+  setStatus(`Confirmacion de renovacion preparada para ${renewal.renovacion_id}.`);
 }
 
 async function saveInventoryItem(item) {
@@ -3725,6 +4191,29 @@ clearOrderFiltersButton?.addEventListener("click", () => {
 });
 searchInventory?.addEventListener("input", renderInventoryList);
 inventoryStatusFilter?.addEventListener("change", renderInventoryList);
+inventoryProductFilter?.addEventListener("change", renderInventoryList);
+inventoryClientFilter?.addEventListener("input", renderInventoryList);
+inventoryEmailFilter?.addEventListener("input", renderInventoryList);
+inventoryPhoneFilter?.addEventListener("input", renderInventoryList);
+inventoryDueStartFilter?.addEventListener("change", renderInventoryList);
+inventoryDueEndFilter?.addEventListener("change", renderInventoryList);
+clearInventoryFiltersButton?.addEventListener("click", () => {
+  [
+    searchInventory,
+    inventoryStatusFilter,
+    inventoryProductFilter,
+    inventoryClientFilter,
+    inventoryEmailFilter,
+    inventoryPhoneFilter,
+    inventoryDueStartFilter,
+    inventoryDueEndFilter,
+  ].forEach((field) => {
+    if (field) {
+      field.value = "";
+    }
+  });
+  renderInventoryList();
+});
 searchProviders?.addEventListener("input", renderProviderList);
 searchProviderPurchases?.addEventListener("input", renderProviderPurchases);
 providerPurchaseStatusFilter?.addEventListener("change", renderProviderPurchases);
@@ -3868,7 +4357,33 @@ renewalList?.addEventListener("click", (event) => {
 });
 
 renewalDueList?.addEventListener("click", async (event) => {
+  const notifyButton = event.target.closest(".notify-renewal-due-button");
   const button = event.target.closest(".create-renewal-button");
+
+  if (notifyButton) {
+    const item = inventoryItems.find((entry) => entry.inventario_id === notifyButton.dataset.inventoryId);
+
+    if (!item) {
+      setStatus("No se encontro la cuenta seleccionada para avisar renovacion.", true);
+      return;
+    }
+
+    const renewalSource = resolveRenewalSource(item);
+    const href = buildWhatsAppUrl(renewalSource.cliente_contacto, buildRenewalMessage(renewalSource));
+
+    if (!href) {
+      setStatus("La cuenta seleccionada no tiene contacto del cliente.", true);
+      return;
+    }
+
+    if (!openWhatsAppLink(href)) {
+      setStatus("No se pudo abrir WhatsApp.", true);
+      return;
+    }
+
+    setStatus(`Mensaje de renovacion preparado para ${item.inventario_id}.`);
+    return;
+  }
 
   if (!button) {
     return;
@@ -3894,7 +4409,14 @@ renewalEditor?.addEventListener("submit", async (event) => {
 });
 
 renewalEditor?.addEventListener("click", async (event) => {
+  const confirmationButton = event.target.closest(".notify-renewal-confirmation-button");
   const button = event.target.closest(".confirm-renewal-button");
+
+  if (confirmationButton) {
+    const form = confirmationButton.closest(".renewal-form");
+    sendRenewalConfirmationMessage(form?.dataset.renewalId);
+    return;
+  }
 
   if (!button) {
     return;
@@ -4176,6 +4698,101 @@ notifyRenewalButton?.addEventListener("click", () => {
   setStatus(`Mensaje de vencimiento preparado para ${selectedInventoryId}.`);
 });
 
+notifyGroupedRenewalsButton?.addEventListener("click", () => {
+  openGroupedRenewalModal();
+});
+
+groupedRenewalList?.addEventListener("click", (event) => {
+  const button = event.target.closest(".send-grouped-renewal-button");
+
+  if (!button) {
+    return;
+  }
+
+  const group = groupedRenewalModalGroups[Number(button.dataset.groupIndex)];
+  const href = group ? buildWhatsAppUrl(group.phone, buildGroupedRenewalMessage(group)) : "";
+
+  if (!href) {
+    setStatus("El cliente seleccionado no tiene celular valido.", true);
+    return;
+  }
+
+  if (!openWhatsAppLink(href)) {
+    setStatus("No se pudo abrir WhatsApp.", true);
+    return;
+  }
+
+  setStatus(`Alerta grupal preparada para ${group.cliente_nombre || group.phone}.`);
+});
+
+document.querySelectorAll("[data-close-grouped-renewals]").forEach((button) => {
+  button.addEventListener("click", closeGroupedRenewalModal);
+});
+
+bulkInventoryUpdateButton?.addEventListener("click", openBulkInventoryModal);
+previewBulkInventoryButton?.addEventListener("click", previewBulkInventoryUpdate);
+bulkInventoryForm?.addEventListener("input", () => {
+  bulkInventoryPreviewItems = [];
+  renderBulkInventoryPreview();
+});
+bulkInventoryForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const filters = getBulkInventoryFilters();
+  const patch = getBulkInventoryPatch();
+
+  if (!filters.producto) {
+    setStatus("Selecciona un producto antes de actualizar inventario masivamente.", true);
+    return;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    setStatus("Marca al menos un campo para actualizar.", true);
+    return;
+  }
+
+  if (bulkInventoryPreviewItems.length === 0) {
+    previewBulkInventoryUpdate();
+    if (bulkInventoryPreviewItems.length === 0) {
+      return;
+    }
+  }
+
+  const confirmed = window.confirm(`Se actualizaran ${bulkInventoryPreviewItems.length} cuenta${bulkInventoryPreviewItems.length === 1 ? "" : "s"}. ¿Deseas continuar?`);
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await apiRequest("/api/admin/inventario/bulk-update", {
+      method: "POST",
+      body: JSON.stringify({ filters, patch }),
+    });
+    const updatedItems = Array.isArray(result.items) ? result.items.map(normalizeInventoryItem) : [];
+
+    updatedItems.forEach((updatedItem) => {
+      const index = inventoryItems.findIndex((item) => item.inventario_id === updatedItem.inventario_id);
+      if (index >= 0) {
+        inventoryItems[index] = updatedItem;
+      }
+    });
+
+    renderInventoryList();
+    renderDashboard();
+    renderReports();
+    fillInventoryForm(inventoryItems.find((item) => item.inventario_id === selectedInventoryId) || defaultInventoryItem);
+    bulkInventoryPreviewItems = updatedItems;
+    renderBulkInventoryPreview();
+    setStatus(`Actualizacion masiva completada: ${result.updated || updatedItems.length} cuenta${updatedItems.length === 1 ? "" : "s"} actualizada${updatedItems.length === 1 ? "" : "s"}.`);
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+document.querySelectorAll("[data-close-bulk-inventory]").forEach((button) => {
+  button.addEventListener("click", closeBulkInventoryModal);
+});
+
 cutServiceButton?.addEventListener("click", () => {
   if (!selectedInventoryId) {
     setStatus("Selecciona una cuenta para cortar el servicio.", true);
@@ -4354,6 +4971,14 @@ logoutButton?.addEventListener("click", async () => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && deleteModal?.classList.contains("is-open")) {
     closeDeleteModal();
+  }
+
+  if (event.key === "Escape" && groupedRenewalModal?.classList.contains("is-open")) {
+    closeGroupedRenewalModal();
+  }
+
+  if (event.key === "Escape" && bulkInventoryModal?.classList.contains("is-open")) {
+    closeBulkInventoryModal();
   }
 });
 

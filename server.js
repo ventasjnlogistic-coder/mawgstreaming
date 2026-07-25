@@ -81,7 +81,10 @@ function getRequiredEnv(name) {
 const adminUser = getRequiredEnv("ADMIN_USER");
 const adminPassword = getRequiredEnv("ADMIN_PASSWORD");
 const sessionSecret = getRequiredEnv("SESSION_SECRET");
-const sessionMaxAgeMs = 1000 * 60 * 60 * 8;
+const configuredSessionMaxAgeHours = Number(process.env.SESSION_MAX_AGE_HOURS);
+const sessionMaxAgeHours =
+  Number.isFinite(configuredSessionMaxAgeHours) && configuredSessionMaxAgeHours > 0 ? configuredSessionMaxAgeHours : 8;
+const sessionMaxAgeMs = 1000 * 60 * 60 * sessionMaxAgeHours;
 const sessionStore =
   isProduction || process.env.SESSION_STORE === "file"
     ? new FileSessionStore({
@@ -504,6 +507,98 @@ async function updateInventoryItem(id, patch) {
   return normalizeInventoryItem(await inventoryStore.updateItem(id, normalizedPatch));
 }
 
+const BULK_INVENTORY_UPDATE_FIELDS = new Set([
+  "cuenta_usuario",
+  "cuenta_clave",
+  "pin",
+  "perfil_nombre",
+  "url_producto",
+  "link_bot",
+  "usuario_bot",
+  "contrasena_bot",
+  "fecha_vencimiento_cliente",
+  "fecha_vencimiento_proveedor",
+  "estado",
+  "estado_control",
+  "notas",
+]);
+
+function normalizeBulkInventoryFilters(filters = {}) {
+  return {
+    producto: String(filters.producto || "").trim().toLowerCase(),
+    cuenta_usuario: String(filters.cuenta_usuario || "").trim().toLowerCase(),
+    proveedor: String(filters.proveedor || "").trim().toLowerCase(),
+    estado: String(filters.estado || "").trim(),
+  };
+}
+
+function inventoryMatchesBulkFilters(item, filters) {
+  const matchesProduct =
+    !filters.producto ||
+    String(item.producto_id || "").toLowerCase().includes(filters.producto) ||
+    String(item.producto_nombre || "").toLowerCase().includes(filters.producto);
+  const matchesUser = !filters.cuenta_usuario || String(item.cuenta_usuario || "").toLowerCase().includes(filters.cuenta_usuario);
+  const matchesProvider = !filters.proveedor || String(item.proveedor || "").toLowerCase().includes(filters.proveedor);
+  const matchesStatus = !filters.estado || item.estado === filters.estado;
+
+  return matchesProduct && matchesUser && matchesProvider && matchesStatus;
+}
+
+function normalizeBulkInventoryPatch(rawPatch = {}) {
+  const patch = {};
+
+  Object.entries(rawPatch).forEach(([key, value]) => {
+    if (BULK_INVENTORY_UPDATE_FIELDS.has(key)) {
+      patch[key] = value === undefined || value === null ? "" : value;
+    }
+  });
+
+  if (patch.estado && !INVENTORY_STATUSES.includes(patch.estado)) {
+    const error = new Error("Estado de inventario no soportado.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return patch;
+}
+
+async function bulkUpdateInventoryItems(filtersInput = {}, patchInput = {}) {
+  const filters = normalizeBulkInventoryFilters(filtersInput);
+  const patch = normalizeBulkInventoryPatch(patchInput);
+
+  if (!filters.producto) {
+    const error = new Error("Selecciona un producto antes de actualizar inventario masivamente.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    const error = new Error("Selecciona al menos un campo para actualizar.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const now = new Date().toISOString();
+  const normalizedPatch = normalizeInventoryItem({ ...patch, inventario_id: "BULK-PATCH", actualizado_en: now });
+  const finalPatch = Object.fromEntries(Object.keys(patch).map((key) => [key, normalizedPatch[key]]));
+  finalPatch.actualizado_en = now;
+
+  if (typeof inventoryStore.bulkUpdateItems === "function") {
+    const updatedItems = await inventoryStore.bulkUpdateItems(filters, finalPatch);
+    return updatedItems.map(normalizeInventoryItem);
+  }
+
+  const currentItems = await readInventory();
+  const matchedItems = currentItems.filter((item) => inventoryMatchesBulkFilters(item, filters));
+  const updatedItems = [];
+
+  for (const item of matchedItems) {
+    updatedItems.push(await updateInventoryItem(item.inventario_id, { ...item, ...finalPatch }));
+  }
+
+  return updatedItems;
+}
+
 function normalizeProductComponents(product, order) {
   const explicit = Array.isArray(product?.componentes) ? product.componentes : [];
   const components = explicit
@@ -784,6 +879,9 @@ async function assignInventoryToOrder(orderId, inventoryId, payload = {}) {
       cuenta_usuario: deliveryItem.cuenta_usuario,
       cuenta_clave: deliveryItem.cuenta_clave,
       url_producto: deliveryItem.url_producto,
+      link_bot: deliveryItem.link_bot,
+      usuario_bot: deliveryItem.usuario_bot,
+      contrasena_bot: deliveryItem.contrasena_bot,
       perfil_nombre: deliveryItem.perfil_nombre,
       pin: deliveryItem.pin,
       notas_entrega: assignment.notas_entrega,
@@ -826,6 +924,9 @@ async function assignInventoryToOrder(orderId, inventoryId, payload = {}) {
     cuenta_usuario: firstAssignment.cuenta_usuario || "",
     cuenta_clave: firstAssignment.cuenta_clave || "",
     url_producto: firstAssignment.url_producto || "",
+    link_bot: firstAssignment.link_bot || "",
+    usuario_bot: firstAssignment.usuario_bot || "",
+    contrasena_bot: firstAssignment.contrasena_bot || "",
     asignaciones_inventario: assignmentDetails,
     actualizado_en: now,
   });
@@ -1012,6 +1113,9 @@ async function createInventoryFromProviderPurchase(purchase) {
       cuenta_usuario: purchase.cuenta_usuario,
       cuenta_clave: purchase.cuenta_clave,
       url_producto: purchase.url_producto,
+      link_bot: purchase.link_bot,
+      usuario_bot: purchase.usuario_bot,
+      contrasena_bot: purchase.contrasena_bot,
       referencia_compra: purchase.referencia_pago || purchase.compra_id,
       fecha_compra: purchase.fecha_compra,
       fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
@@ -1474,6 +1578,36 @@ app.post("/api/admin/inventario", requirePermission("inventario"), async (req, r
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo crear la cuenta de inventario." });
   }
 });
+
+async function handleBulkInventoryUpdate(req, res) {
+  try {
+    const filters = req.body?.filters || {};
+    const patch = req.body?.patch || {};
+    const beforeItems = (await readInventory()).filter((item) => inventoryMatchesBulkFilters(item, normalizeBulkInventoryFilters(filters)));
+    const updatedItems = await bulkUpdateInventoryItems(filters, patch);
+
+    await audit(req, {
+      entidad: "inventario",
+      entidad_id: "bulk-update",
+      accion: "actualizar_masivo",
+      antes: beforeItems,
+      despues: updatedItems,
+      detalles: {
+        filtros: normalizeBulkInventoryFilters(filters),
+        campos: Object.keys(normalizeBulkInventoryPatch(patch)),
+        cantidad: updatedItems.length,
+      },
+    });
+
+    res.json({ updated: updatedItems.length, items: updatedItems });
+  } catch (error) {
+    logUnexpectedError(error);
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo actualizar el inventario masivamente." });
+  }
+}
+
+app.post("/api/admin/inventario/bulk-update", requirePermission("inventario"), handleBulkInventoryUpdate);
+app.patch("/api/admin/inventario/bulk-update", requirePermission("inventario"), handleBulkInventoryUpdate);
 
 app.put("/api/admin/inventario/:id", requirePermission("inventario"), async (req, res) => {
   try {

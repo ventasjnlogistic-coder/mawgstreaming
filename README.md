@@ -46,9 +46,10 @@ Edita `.env`:
 ADMIN_USER=admin
 ADMIN_PASSWORD=tu-contrasena-local
 SESSION_SECRET=una-clave-larga-para-sesiones
+SESSION_MAX_AGE_HOURS=24
 ```
 
-El admin local protege `/admin.html` y `/api/admin/productos` con sesion. El token de Apps Script nunca se usa desde el navegador: solo lo envia el backend local cuando una sesion admin valida crea, actualiza o elimina productos.
+El admin local protege `/admin.html` y las rutas `/api/admin/*` con sesion. `SESSION_MAX_AGE_HOURS` controla cuantas horas dura la sesion antes de pedir login nuevamente; si no se configura, usa 8 horas. El token de Apps Script nunca se usa desde el navegador: solo lo envia el backend local cuando una sesion admin valida crea, actualiza o elimina productos.
 
 ## Modo Google Apps Script + Google Sheets
 
@@ -90,6 +91,7 @@ APPS_SCRIPT_TIMEOUT_MS=15000
 ADMIN_USER=admin-de-respaldo
 ADMIN_PASSWORD=clave-de-respaldo
 SESSION_SECRET=una-clave-larga-y-segura
+SESSION_MAX_AGE_HOURS=24
 ```
 
 El login principal puede venir de la hoja `UsuariosAdmin`. `ADMIN_USER` y `ADMIN_PASSWORD` quedan como respaldo para no perder acceso si Apps Script no responde.
