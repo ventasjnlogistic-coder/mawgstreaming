@@ -1577,7 +1577,8 @@ function findProductForOrder(order) {
 }
 
 function renderTemplateMessage(template, values = {}) {
-  return String(template || "").replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key) => {
+  return String(template || "").replace(/{{\s*([^{}]+?)\s*}}/g, (_match, rawKey) => {
+    const key = String(rawKey || "").trim().replace(/\\_/g, "_");
     const value = values[key];
     return value === undefined || value === null ? "" : String(value);
   });
@@ -2000,6 +2001,11 @@ function buildDataUpdateMessage(item) {
   const template = getActiveMessageTemplate("actualizacion_datos");
   const values = {
     ...source,
+    usuario: source.cuenta_usuario || "",
+    correo: source.cuenta_usuario || "",
+    clave: source.cuenta_clave || "",
+    contrasena: source.cuenta_clave || "",
+    contraseña: source.cuenta_clave || "",
     fecha_vencimiento_cliente: source.fecha_vencimiento_cliente || "",
     vencimiento_formateado: expiration,
   };
@@ -2058,6 +2064,14 @@ function resolveRenewalSource(item = {}) {
     inventario_id: normalizedItem.inventario_id,
     cliente_nombre: String(linkedOrder?.cliente_nombre || normalizedItem.cliente_nombre || "").trim(),
     cliente_contacto: String(linkedOrder?.cliente_contacto || normalizedItem.cliente_contacto || "").trim(),
+    cuenta_usuario: String(normalizedItem.cuenta_usuario || linkedAssignment?.cuenta_usuario || linkedOrder?.cuenta_usuario || "").trim(),
+    cuenta_clave: String(normalizedItem.cuenta_clave || linkedAssignment?.cuenta_clave || linkedOrder?.cuenta_clave || "").trim(),
+    perfil_nombre: String(normalizedItem.perfil_nombre || linkedAssignment?.perfil_nombre || linkedOrder?.perfil_nombre || "").trim(),
+    pin: String(normalizedItem.pin !== "" && normalizedItem.pin !== undefined && normalizedItem.pin !== null ? normalizedItem.pin : (linkedAssignment?.pin ?? linkedOrder?.pin ?? "")).trim(),
+    url_producto: String(normalizedItem.url_producto || linkedAssignment?.url_producto || linkedOrder?.url_producto || "").trim(),
+    link_bot: String(normalizedItem.link_bot || linkedAssignment?.link_bot || linkedOrder?.link_bot || "").trim(),
+    usuario_bot: String(normalizedItem.usuario_bot || linkedAssignment?.usuario_bot || linkedOrder?.usuario_bot || "").trim(),
+    contrasena_bot: String(normalizedItem.contrasena_bot || linkedAssignment?.contrasena_bot || linkedOrder?.contrasena_bot || "").trim(),
     fecha_vencimiento_cliente: String(normalizedItem.fecha_vencimiento_cliente || linkedAssignment?.fecha_vencimiento_cliente || linkedOrder?.fecha_vencimiento_cliente || "").trim(),
     producto_nombre: String(linkedAssignment?.componente_nombre || normalizedItem.producto_nombre || linkedOrder?.producto_nombre || "").trim(),
     producto_id: String(linkedAssignment?.producto_id || normalizedItem.producto_id || linkedOrder?.producto_id || "").trim(),
