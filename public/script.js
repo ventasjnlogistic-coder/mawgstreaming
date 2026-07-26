@@ -417,6 +417,10 @@ function settingsToMap(settings) {
   }, {});
 }
 
+function hasActiveSettingForPrefix(settings, prefix) {
+  return settings.some((setting) => setting.id.startsWith(prefix) && setting.estado !== "inactivo");
+}
+
 function buildWhatsAppUrl(number, message = "") {
   const normalizedNumber = String(number || "").replace(/\D/g, "");
   const params = new URLSearchParams({
@@ -453,7 +457,7 @@ function normalizeShowcaseImage(value) {
   return driveFileId ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(driveFileId)}&sz=w800` : image;
 }
 
-function renderHeroShowcase(map) {
+function renderHeroShowcase(map, settings = []) {
   if (heroShowcaseLabel) {
     heroShowcaseLabel.textContent = map.hero_showcase_label || "Stock actualizado";
   }
@@ -477,25 +481,31 @@ function renderHeroShowcase(map) {
     ["Curso", "Ventas Digitales", "Acceso digital"],
   ];
 
-  heroShowcaseGrid.innerHTML = fallbackCards
+  const hasShowcaseSettings = settings.some((setting) => setting.id.startsWith("hero_card_"));
+  const visibleCards = fallbackCards
+    .map((fallback, index) => ({ fallback, position: index + 1 }))
+    .filter(({ position }) => !hasShowcaseSettings || hasActiveSettingForPrefix(settings, `hero_card_${position}_`));
+
+  heroShowcaseGrid.innerHTML = visibleCards
     .map((fallback, index) => {
-      const position = index + 1;
+      const position = fallback.position;
+      const cardFallback = fallback.fallback;
       const image = normalizeShowcaseImage(map[`hero_card_${position}_imagen`]);
       const imageMarkup = image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" />` : "";
 
       return `
         <article class="poster-card ${image ? "has-image" : ""}" data-showcase-card="${position}">
           ${imageMarkup}
-          <span>${escapeHtml(map[`hero_card_${position}_categoria`] || fallback[0])}</span>
-          <strong>${escapeHtml(map[`hero_card_${position}_titulo`] || fallback[1])}</strong>
-          <small>${escapeHtml(map[`hero_card_${position}_texto`] || fallback[2])}</small>
+          <span>${escapeHtml(map[`hero_card_${position}_categoria`] || cardFallback[0])}</span>
+          <strong>${escapeHtml(map[`hero_card_${position}_titulo`] || cardFallback[1])}</strong>
+          <small>${escapeHtml(map[`hero_card_${position}_texto`] || cardFallback[2])}</small>
         </article>
       `;
     })
     .join("");
 }
 
-function renderCategorySection(map) {
+function renderCategorySection(map, settings = []) {
   if (categorySectionLabel) {
     categorySectionLabel.textContent = map.categorias_label || "Categorias";
   }
@@ -518,19 +528,25 @@ function renderCategorySection(map) {
     ["PK", "Combos especiales", "Paquetes con varios servicios agrupados en una sola compra.", "Cotizar combo"],
   ];
 
-  categoryGrid.innerHTML = fallbackCards
+  const hasCategorySettings = settings.some((setting) => setting.id.startsWith("categoria_card_"));
+  const visibleCards = fallbackCards
+    .map((fallback, index) => ({ fallback, position: index + 1 }))
+    .filter(({ position }) => !hasCategorySettings || hasActiveSettingForPrefix(settings, `categoria_card_${position}_`));
+
+  categoryGrid.innerHTML = visibleCards
     .map((fallback, index) => {
-      const position = index + 1;
+      const position = fallback.position;
+      const cardFallback = fallback.fallback;
       const image = normalizeShowcaseImage(map[`categoria_card_${position}_imagen`]);
       const imageMarkup = image ? `<img class="category-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" />` : "";
 
       return `
         <article class="category-card ${image ? "has-image" : ""}" data-category-card="${position}">
           ${imageMarkup}
-          <div class="card-icon">${escapeHtml(map[`categoria_card_${position}_icono`] || fallback[0])}</div>
-          <h3>${escapeHtml(map[`categoria_card_${position}_titulo`] || fallback[1])}</h3>
-          <p>${formatRichText(map[`categoria_card_${position}_texto`] || fallback[2])}</p>
-          <a href="${escapeHtml(map[`categoria_card_${position}_link`] || "#pedido")}">${escapeHtml(map[`categoria_card_${position}_cta`] || fallback[3])}</a>
+          <div class="card-icon">${escapeHtml(map[`categoria_card_${position}_icono`] || cardFallback[0])}</div>
+          <h3>${escapeHtml(map[`categoria_card_${position}_titulo`] || cardFallback[1])}</h3>
+          <p>${formatRichText(map[`categoria_card_${position}_texto`] || cardFallback[2])}</p>
+          <a href="${escapeHtml(map[`categoria_card_${position}_link`] || "#pedido")}">${escapeHtml(map[`categoria_card_${position}_cta`] || cardFallback[3])}</a>
         </article>
       `;
     })
@@ -538,7 +554,8 @@ function renderCategorySection(map) {
 }
 
 function renderSiteSettings(settings) {
-  const map = settingsToMap(settings.map(normalizeSiteSetting));
+  const normalizedSettings = settings.map(normalizeSiteSetting);
+  const map = settingsToMap(normalizedSettings);
   const salesNumber = map.ventas_whatsapp || whatsappNumber;
   const salesMessage = map.ventas_mensaje || "Hola, quiero consultar productos disponibles";
   const supportNumber = map.soporte_whatsapp || salesNumber;
@@ -586,8 +603,8 @@ function renderSiteSettings(settings) {
     scheduleNote.innerHTML = formatRichText(map.horario_nota);
   }
 
-  renderHeroShowcase(map);
-  renderCategorySection(map);
+  renderHeroShowcase(map, normalizedSettings);
+  renderCategorySection(map, normalizedSettings);
 }
 
 async function loadSiteSettings() {
