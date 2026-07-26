@@ -1168,6 +1168,29 @@ async function saveProviderPurchase(payload = {}, id = "") {
   };
 }
 
+function findOrderAssignmentForInventory(order, inventoryId) {
+  const targetId = String(inventoryId || "").trim();
+
+  if (!targetId || !Array.isArray(order?.asignaciones_inventario)) {
+    return null;
+  }
+
+  return order.asignaciones_inventario.find((assignment) => String(assignment.inventario_id || "").trim() === targetId) || null;
+}
+
+function resolveInventoryRenewalAmount(item, linkedOrder) {
+  const assignment = findOrderAssignmentForInventory(linkedOrder, item.inventario_id);
+  const candidates = [
+    assignment?.precio_venta,
+    item.precio_venta,
+    item.precio_venta_sugerido,
+    item.monto,
+    linkedOrder?.producto_precio,
+  ];
+
+  return candidates.find((value) => value !== "" && value !== undefined && value !== null) ?? "";
+}
+
 async function createRenewal(payload = {}) {
   const items = await readInventory();
   const item = items.find((entry) => entry.inventario_id === String(payload.inventario_id || "").trim());
@@ -1183,7 +1206,7 @@ async function createRenewal(payload = {}) {
   const clienteNombre = payload.cliente_nombre || item.cliente_nombre || linkedOrder?.cliente_nombre || "";
   const clienteContacto = payload.cliente_contacto || item.cliente_contacto || linkedOrder?.cliente_contacto || "";
   const productoNombre = payload.producto_nombre || item.producto_nombre || linkedOrder?.producto_nombre || item.producto_id;
-  const defaultAmount = item.precio_venta_sugerido || linkedOrder?.producto_precio || "";
+  const defaultAmount = resolveInventoryRenewalAmount(item, linkedOrder);
 
   if (linkedOrder && (!item.cliente_nombre || !item.cliente_contacto)) {
     try {

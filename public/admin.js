@@ -2022,20 +2022,48 @@ function buildDataUpdateMessage(item) {
   ].join("\n");
 }
 
+function findOrderAssignmentForInventory(order, inventoryId) {
+  const targetId = String(inventoryId || "").trim();
+
+  if (!targetId || !Array.isArray(order?.asignaciones_inventario)) {
+    return null;
+  }
+
+  return order.asignaciones_inventario.find((assignment) => String(assignment.inventario_id || "").trim() === targetId) || null;
+}
+
+function resolveAccountSaleAmount(item, linkedOrder) {
+  const assignment = findOrderAssignmentForInventory(linkedOrder, item.inventario_id);
+  const candidates = [
+    assignment?.precio_venta,
+    item.precio_venta,
+    item.precio_venta_sugerido,
+    item.monto,
+    linkedOrder?.producto_precio,
+  ];
+
+  return candidates.find((value) => value !== "" && value !== undefined && value !== null) ?? "";
+}
+
 function resolveRenewalSource(item = {}) {
   const normalizedItem = normalizeInventoryItem(item);
   const linkedOrder = normalizedItem.pedido_id ? orders.find((order) => String(order.pedido_id || "").trim() === String(normalizedItem.pedido_id || "").trim()) : null;
+  const linkedAssignment = findOrderAssignmentForInventory(linkedOrder, normalizedItem.inventario_id);
+  const amount = resolveAccountSaleAmount(normalizedItem, linkedOrder);
 
   return {
     ...normalizedItem,
     ...(linkedOrder || {}),
+    ...(linkedAssignment || {}),
+    inventario_id: normalizedItem.inventario_id,
     cliente_nombre: String(linkedOrder?.cliente_nombre || normalizedItem.cliente_nombre || "").trim(),
     cliente_contacto: String(linkedOrder?.cliente_contacto || normalizedItem.cliente_contacto || "").trim(),
-    fecha_vencimiento_cliente: String(normalizedItem.fecha_vencimiento_cliente || linkedOrder?.fecha_vencimiento_cliente || "").trim(),
-    producto_nombre: String(linkedOrder?.producto_nombre || normalizedItem.producto_nombre || "").trim(),
-    producto_id: String(linkedOrder?.producto_id || normalizedItem.producto_id || "").trim(),
+    fecha_vencimiento_cliente: String(normalizedItem.fecha_vencimiento_cliente || linkedAssignment?.fecha_vencimiento_cliente || linkedOrder?.fecha_vencimiento_cliente || "").trim(),
+    producto_nombre: String(linkedAssignment?.componente_nombre || normalizedItem.producto_nombre || linkedOrder?.producto_nombre || "").trim(),
+    producto_id: String(linkedAssignment?.producto_id || normalizedItem.producto_id || linkedOrder?.producto_id || "").trim(),
     pedido_id: String(linkedOrder?.pedido_id || normalizedItem.pedido_id || "").trim(),
-    monto: linkedOrder?.producto_precio ?? normalizedItem.monto ?? normalizedItem.precio_venta_sugerido ?? "",
+    precio_venta: linkedAssignment?.precio_venta ?? normalizedItem.precio_venta ?? "",
+    monto: amount,
   };
 }
 
@@ -2103,44 +2131,58 @@ function renderInventoryProductOptions() {
   inventoryProductSelect.value = currentValue;
 }
 
+function buildInventoryProductOptionEntries() {
+  const optionMap = new Map();
+
+  const addOption = (value, label) => {
+    const safeValue = String(value || "").trim();
+    const safeLabel = String(label || value || "").trim();
+    const normalizedKey = slugify(safeValue || safeLabel);
+
+    if (!normalizedKey || optionMap.has(normalizedKey)) {
+      return;
+    }
+
+    optionMap.set(normalizedKey, {
+      value: safeValue || safeLabel,
+      label: safeLabel || safeValue,
+    });
+  };
+
+  products.forEach((product) => {
+    addOption(product.id || product.nombre, product.nombre || product.id);
+  });
+
+  inventoryItems.forEach((item) => {
+    addOption(item.producto_id || item.producto_nombre, item.producto_nombre || item.producto_id);
+  });
+
+  return [...optionMap.values()].sort((left, right) => String(left.label).localeCompare(String(right.label)));
+}
+
 function renderInventoryProductFilterOptions() {
   if (!inventoryProductFilter) {
     return;
   }
 
   const currentValue = inventoryProductFilter.value;
-  const optionMap = new Map();
-
-  products.forEach((product) => {
-    if (product.id || product.nombre) {
-      optionMap.set(product.id || product.nombre, product.nombre || product.id);
-    }
-  });
-
-  inventoryItems.forEach((item) => {
-    const key = item.producto_id || item.producto_nombre;
-    if (key && !optionMap.has(key)) {
-      optionMap.set(key, item.producto_nombre || item.producto_id);
-    }
-  });
+  const entries = buildInventoryProductOptionEntries();
+  const hasCurrentValue = entries.some((entry) => entry.value === currentValue || productValueMatches(entry.value, currentValue));
 
   inventoryProductFilter.innerHTML = [
     '<option value="">Todos los productos</option>',
-    ...[...optionMap.entries()]
-      .sort((left, right) => String(left[1]).localeCompare(String(right[1])))
-      .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`),
+    ...entries.map((entry) => `<option value="${escapeHtml(entry.value)}">${escapeHtml(entry.label)}</option>`),
   ].join("");
-  inventoryProductFilter.value = optionMap.has(currentValue) ? currentValue : "";
+  inventoryProductFilter.value = hasCurrentValue ? entries.find((entry) => entry.value === currentValue || productValueMatches(entry.value, currentValue))?.value || "" : "";
 
   if (bulkInventoryProductFilter) {
     const currentBulkValue = bulkInventoryProductFilter.value;
+    const hasCurrentBulkValue = entries.some((entry) => entry.value === currentBulkValue || productValueMatches(entry.value, currentBulkValue));
     bulkInventoryProductFilter.innerHTML = [
       '<option value="">Selecciona producto</option>',
-      ...[...optionMap.entries()]
-        .sort((left, right) => String(left[1]).localeCompare(String(right[1])))
-        .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`),
+      ...entries.map((entry) => `<option value="${escapeHtml(entry.value)}">${escapeHtml(entry.label)}</option>`),
     ].join("");
-    bulkInventoryProductFilter.value = optionMap.has(currentBulkValue) ? currentBulkValue : "";
+    bulkInventoryProductFilter.value = hasCurrentBulkValue ? entries.find((entry) => entry.value === currentBulkValue || productValueMatches(entry.value, currentBulkValue))?.value || "" : "";
   }
 }
 
