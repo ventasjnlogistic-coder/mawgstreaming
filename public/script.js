@@ -421,6 +421,10 @@ function hasActiveSettingForPrefix(settings, prefix) {
   return settings.some((setting) => setting.id.startsWith(prefix) && setting.estado !== "inactivo");
 }
 
+function getConfiguredText(map, hasSettings, key, fallback = "") {
+  return hasSettings ? map[key] || "" : fallback;
+}
+
 function buildWhatsAppUrl(number, message = "") {
   const normalizedNumber = String(number || "").replace(/\D/g, "");
   const params = new URLSearchParams({
@@ -487,18 +491,21 @@ function renderHeroShowcase(map, settings = []) {
     .filter(({ position }) => !hasShowcaseSettings || hasActiveSettingForPrefix(settings, `hero_card_${position}_`));
 
   heroShowcaseGrid.innerHTML = visibleCards
-    .map((fallback, index) => {
+    .map((fallback) => {
       const position = fallback.position;
       const cardFallback = fallback.fallback;
       const image = normalizeShowcaseImage(map[`hero_card_${position}_imagen`]);
       const imageMarkup = image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" />` : "";
+      const category = getConfiguredText(map, hasShowcaseSettings, `hero_card_${position}_categoria`, cardFallback[0]);
+      const title = getConfiguredText(map, hasShowcaseSettings, `hero_card_${position}_titulo`, cardFallback[1]);
+      const text = getConfiguredText(map, hasShowcaseSettings, `hero_card_${position}_texto`, cardFallback[2]);
 
       return `
         <article class="poster-card ${image ? "has-image" : ""}" data-showcase-card="${position}">
           ${imageMarkup}
-          <span>${escapeHtml(map[`hero_card_${position}_categoria`] || cardFallback[0])}</span>
-          <strong>${escapeHtml(map[`hero_card_${position}_titulo`] || cardFallback[1])}</strong>
-          <small>${escapeHtml(map[`hero_card_${position}_texto`] || cardFallback[2])}</small>
+          ${category ? `<span>${escapeHtml(category)}</span>` : ""}
+          ${title ? `<strong>${escapeHtml(title)}</strong>` : ""}
+          ${text ? `<small>${escapeHtml(text)}</small>` : ""}
         </article>
       `;
     })
@@ -534,19 +541,24 @@ function renderCategorySection(map, settings = []) {
     .filter(({ position }) => !hasCategorySettings || hasActiveSettingForPrefix(settings, `categoria_card_${position}_`));
 
   categoryGrid.innerHTML = visibleCards
-    .map((fallback, index) => {
+    .map((fallback) => {
       const position = fallback.position;
       const cardFallback = fallback.fallback;
       const image = normalizeShowcaseImage(map[`categoria_card_${position}_imagen`]);
       const imageMarkup = image ? `<img class="category-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" />` : "";
+      const icon = getConfiguredText(map, hasCategorySettings, `categoria_card_${position}_icono`, cardFallback[0]);
+      const title = getConfiguredText(map, hasCategorySettings, `categoria_card_${position}_titulo`, cardFallback[1]);
+      const text = getConfiguredText(map, hasCategorySettings, `categoria_card_${position}_texto`, cardFallback[2]);
+      const cta = getConfiguredText(map, hasCategorySettings, `categoria_card_${position}_cta`, cardFallback[3]);
+      const link = getConfiguredText(map, hasCategorySettings, `categoria_card_${position}_link`, "#pedido");
 
       return `
         <article class="category-card ${image ? "has-image" : ""}" data-category-card="${position}">
           ${imageMarkup}
-          <div class="card-icon">${escapeHtml(map[`categoria_card_${position}_icono`] || cardFallback[0])}</div>
-          <h3>${escapeHtml(map[`categoria_card_${position}_titulo`] || cardFallback[1])}</h3>
-          <p>${formatRichText(map[`categoria_card_${position}_texto`] || cardFallback[2])}</p>
-          <a href="${escapeHtml(map[`categoria_card_${position}_link`] || "#pedido")}">${escapeHtml(map[`categoria_card_${position}_cta`] || cardFallback[3])}</a>
+          ${icon ? `<div class="card-icon">${escapeHtml(icon)}</div>` : ""}
+          ${title ? `<h3>${escapeHtml(title)}</h3>` : ""}
+          ${text ? `<p>${formatRichText(text)}</p>` : ""}
+          ${cta ? `<a href="${escapeHtml(link || "#pedido")}">${escapeHtml(cta)}</a>` : ""}
         </article>
       `;
     })
