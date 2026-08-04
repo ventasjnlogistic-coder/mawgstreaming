@@ -88,7 +88,7 @@ const INVENTORY_HEADERS = [
   "usuario_bot",
   "contrasena_bot",
 ];
-const INVENTORY_STATUSES = ["pendiente_revision", "disponible", "ocupado", "reservado", "por_vencer", "vencido", "reclamo", "baja"];
+const INVENTORY_STATUSES = ["pendiente_revision", "disponible", "ocupado", "reservado", "principal", "por_entregar", "por_vencer", "vencido", "reclamo", "baja"];
 const RENEWAL_HEADERS = [
   "renovacion_id",
   "pedido_id",
@@ -144,6 +144,30 @@ const PROVIDER_PURCHASE_HEADERS = [
 ];
 const PROVIDER_STATUSES = ["activo", "observado", "inactivo"];
 const PROVIDER_PURCHASE_STATUSES = ["pendiente", "pagado", "recibido", "parcial", "cancelado"];
+const INVENTORY_TEXT_FIELDS = [
+  "cuenta_usuario",
+  "cuenta_clave",
+  "perfil_nombre",
+  "pin",
+  "cliente_contacto",
+  "celular_proveedor",
+  "referencia_compra",
+  "url_producto",
+  "link_bot",
+  "usuario_bot",
+  "contrasena_bot",
+];
+const PROVIDER_PURCHASE_TEXT_FIELDS = [
+  "cuenta_usuario",
+  "cuenta_clave",
+  "url_producto",
+  "link_bot",
+  "usuario_bot",
+  "contrasena_bot",
+  "referencia_pago",
+];
+const PROVIDER_TEXT_FIELDS = ["contacto"];
+const PAYMENT_METHOD_TEXT_FIELDS = ["numero", "cci"];
 const DEFAULT_PAYMENT_METHODS = [
   ["yape", "Yape", "billetera", "Eduardo Leoncio Lujan Romero", "913344874", "", "", "assets/images/pago.png", "Escanea el QR o usa el numero visible. Luego adjunta tu comprobante para validarlo.", "activo", 1],
   ["plin", "Plin", "billetera", "MAWG Streaming", "988888888", "", "", "", "Usa el numero afiliado y confirma el pago adjuntando tu captura o PDF.", "activo", 2],
@@ -424,7 +448,7 @@ function getInventorySheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(INVENTORY_SHEET_NAME) || spreadsheet.insertSheet(INVENTORY_SHEET_NAME);
   ensureSpecificHeaders_(sheet, INVENTORY_HEADERS);
-  ensureTextColumns_(sheet, INVENTORY_HEADERS, ["cuenta_clave", "pin", "contrasena_bot"]);
+  ensureTextColumns_(sheet, INVENTORY_HEADERS, INVENTORY_TEXT_FIELDS);
   return sheet;
 }
 
@@ -439,6 +463,7 @@ function getPaymentMethodsSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(PAYMENT_METHODS_SHEET_NAME) || spreadsheet.insertSheet(PAYMENT_METHODS_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PAYMENT_METHOD_HEADERS);
+  ensureTextColumns_(sheet, PAYMENT_METHOD_HEADERS, PAYMENT_METHOD_TEXT_FIELDS);
   seedDefaultPaymentMethods_(sheet);
   return sheet;
 }
@@ -471,6 +496,7 @@ function getProvidersSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(PROVIDERS_SHEET_NAME) || spreadsheet.insertSheet(PROVIDERS_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PROVIDER_HEADERS);
+  ensureTextColumns_(sheet, PROVIDER_HEADERS, PROVIDER_TEXT_FIELDS);
   return sheet;
 }
 
@@ -479,7 +505,7 @@ function getProviderPurchasesSheet_() {
   const sheet = spreadsheet.getSheetByName(PROVIDER_PURCHASES_SHEET_NAME) || spreadsheet.insertSheet(PROVIDER_PURCHASES_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PROVIDER_PURCHASE_HEADERS);
   ensureColumnsByName_(sheet, PROVIDER_PURCHASE_HEADERS);
-  ensureTextColumns_(sheet, PROVIDER_PURCHASE_HEADERS, ["cuenta_clave", "contrasena_bot"]);
+  ensureTextColumns_(sheet, PROVIDER_PURCHASE_HEADERS, PROVIDER_PURCHASE_TEXT_FIELDS);
   return sheet;
 }
 
@@ -646,6 +672,16 @@ function ensureTextColumns_(sheet, headers, columnNames) {
 
     if (index >= 0) {
       sheet.getRange(1, index + 1, maxRows, 1).setNumberFormat("@");
+    }
+  });
+}
+
+function formatTextRow_(sheet, headers, columnNames, row) {
+  columnNames.forEach(function (name) {
+    const index = headers.indexOf(name);
+
+    if (index >= 0) {
+      sheet.getRange(row, index + 1).setNumberFormat("@");
     }
   });
 }
@@ -1054,6 +1090,9 @@ function seedDefaultPaymentMethods_(sheet) {
     return;
   }
 
+  for (let index = 0; index < DEFAULT_PAYMENT_METHODS.length; index += 1) {
+    formatTextRow_(sheet, PAYMENT_METHOD_HEADERS, PAYMENT_METHOD_TEXT_FIELDS, index + 2);
+  }
   sheet.getRange(2, 1, DEFAULT_PAYMENT_METHODS.length, PAYMENT_METHOD_HEADERS.length).setValues(DEFAULT_PAYMENT_METHODS);
 }
 
@@ -1089,7 +1128,9 @@ function createPaymentMethod_(method) {
     throw new Error("Ya existe un metodo de pago con ese ID.");
   }
 
-  sheet.appendRow(paymentMethodToRow_(normalized));
+  const nextRow = sheet.getLastRow() + 1;
+  formatTextRow_(sheet, PAYMENT_METHOD_HEADERS, PAYMENT_METHOD_TEXT_FIELDS, nextRow);
+  sheet.getRange(nextRow, 1, 1, PAYMENT_METHOD_HEADERS.length).setValues([paymentMethodToRow_(normalized)]);
   return normalized;
 }
 
@@ -1111,6 +1152,7 @@ function updatePaymentMethod_(id, method) {
     throw new Error("Ya existe un metodo de pago con ese ID.");
   }
 
+  formatTextRow_(sheet, PAYMENT_METHOD_HEADERS, PAYMENT_METHOD_TEXT_FIELDS, row);
   sheet.getRange(row, 1, 1, PAYMENT_METHOD_HEADERS.length).setValues([paymentMethodToRow_(normalized)]);
   return normalized;
 }
@@ -1432,7 +1474,9 @@ function createProvider_(provider) {
     throw new Error("Ya existe un proveedor con ese ID.");
   }
 
-  sheet.appendRow(providerToRow_(normalized));
+  const nextRow = sheet.getLastRow() + 1;
+  formatTextRow_(sheet, PROVIDER_HEADERS, PROVIDER_TEXT_FIELDS, nextRow);
+  sheet.getRange(nextRow, 1, 1, PROVIDER_HEADERS.length).setValues([providerToRow_(normalized)]);
   return normalized;
 }
 
@@ -1448,6 +1492,7 @@ function updateProvider_(id, provider) {
   const normalized = normalizeProvider_(Object.assign({}, current, provider, { proveedor_id: current.proveedor_id, actualizado_en: new Date().toISOString() }));
 
   validateProvider_(normalized);
+  formatTextRow_(sheet, PROVIDER_HEADERS, PROVIDER_TEXT_FIELDS, row);
   sheet.getRange(row, 1, 1, PROVIDER_HEADERS.length).setValues([providerToRow_(normalized)]);
   return normalized;
 }
@@ -1526,7 +1571,9 @@ function createProviderPurchase_(purchase) {
     throw new Error("Ya existe una compra de proveedor con ese ID.");
   }
 
-  sheet.appendRow(providerPurchaseToRow_(normalized));
+  const nextRow = sheet.getLastRow() + 1;
+  formatTextRow_(sheet, PROVIDER_PURCHASE_HEADERS, PROVIDER_PURCHASE_TEXT_FIELDS, nextRow);
+  sheet.getRange(nextRow, 1, 1, PROVIDER_PURCHASE_HEADERS.length).setValues([providerPurchaseToRow_(normalized)]);
   normalized.inventario_generado = createInventoryFromProviderPurchase_(normalized).length;
   return normalized;
 }
@@ -1543,6 +1590,7 @@ function updateProviderPurchase_(id, purchase) {
   const normalized = normalizeProviderPurchase_(Object.assign({}, current, purchase, { compra_id: current.compra_id, actualizado_en: new Date().toISOString() }));
 
   validateProviderPurchase_(normalized);
+  formatTextRow_(sheet, PROVIDER_PURCHASE_HEADERS, PROVIDER_PURCHASE_TEXT_FIELDS, row);
   sheet.getRange(row, 1, 1, PROVIDER_PURCHASE_HEADERS.length).setValues([providerPurchaseToRow_(normalized)]);
   normalized.inventario_generado = createInventoryFromProviderPurchase_(normalized).length;
   return normalized;
@@ -1586,7 +1634,7 @@ function createInventoryFromProviderPurchase_(purchase) {
         referencia_compra: purchase.referencia_pago || purchase.compra_id,
         fecha_compra: purchase.fecha_compra,
         fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
-        estado: "disponible",
+        estado: "reservado",
         estado_control: "Generado desde compra recibida",
         notas: [purchase.notas, "Compra proveedor: " + purchase.compra_id].filter(Boolean).join(" | "),
       })
@@ -1718,7 +1766,9 @@ function createInventoryItem_(item) {
     throw new Error("Ya existe una cuenta de inventario con ese ID.");
   }
 
-  sheet.appendRow(inventoryItemToRow_(normalized));
+  const nextRow = sheet.getLastRow() + 1;
+  formatInventoryTextRow_(sheet, nextRow);
+  sheet.getRange(nextRow, 1, 1, INVENTORY_HEADERS.length).setValues([inventoryItemToRow_(normalized)]);
   return normalized;
 }
 
@@ -1739,6 +1789,7 @@ function updateInventoryItem_(id, item) {
   );
 
   validateInventoryItem_(updated);
+  formatInventoryTextRow_(sheet, row);
   sheet.getRange(row, 1, 1, INVENTORY_HEADERS.length).setValues([inventoryItemToRow_(updated)]);
   return updated;
 }
@@ -1847,7 +1898,7 @@ function inventoryMatchesBulkFilters_(item, filters) {
 }
 
 function formatInventoryTextRow_(sheet, row) {
-  ["cuenta_usuario", "cuenta_clave", "perfil_nombre", "pin", "usuario_bot", "contrasena_bot"].forEach(function (field) {
+  INVENTORY_TEXT_FIELDS.forEach(function (field) {
     const column = INVENTORY_HEADERS.indexOf(field) + 1;
     if (column > 0) {
       sheet.getRange(row, column).setNumberFormat("@");
@@ -1862,7 +1913,7 @@ function formatInventoryTextColumns_(sheet, lastRow) {
     return;
   }
 
-  ["cuenta_usuario", "cuenta_clave", "perfil_nombre", "pin", "usuario_bot", "contrasena_bot"].forEach(function (field) {
+  INVENTORY_TEXT_FIELDS.forEach(function (field) {
     const column = INVENTORY_HEADERS.indexOf(field) + 1;
     if (column > 0) {
       sheet.getRange(2, column, rowCount, 1).setNumberFormat("@");

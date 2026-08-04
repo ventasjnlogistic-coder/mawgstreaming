@@ -30,7 +30,18 @@ const DEFAULT_INVENTORY_ITEM = {
   actualizado_en: "",
 };
 
-const INVENTORY_STATUSES = ["pendiente_revision", "disponible", "ocupado", "reservado", "por_vencer", "vencido", "reclamo", "baja"];
+const INVENTORY_STATUSES = [
+  "pendiente_revision",
+  "disponible",
+  "ocupado",
+  "reservado",
+  "principal",
+  "por_entregar",
+  "por_vencer",
+  "vencido",
+  "reclamo",
+  "baja",
+];
 
 function generateInventoryId(date = new Date()) {
   const timestamp = date

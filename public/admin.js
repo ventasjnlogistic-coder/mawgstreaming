@@ -848,6 +848,23 @@ function formatPrice(price) {
   return Number.isFinite(number) ? `S/ ${formatNumberMaxDecimals(number)}` : String(price);
 }
 
+function formatInventoryStatus(status) {
+  const labels = {
+    pendiente_revision: "Pendiente revision",
+    disponible: "Disponible",
+    ocupado: "Ocupado",
+    reservado: "Reservado",
+    principal: "Principal",
+    por_entregar: "Por entregar",
+    por_vencer: "Por vencer",
+    vencido: "Vencido",
+    reclamo: "Reclamo",
+    baja: "Baja",
+  };
+
+  return labels[String(status || "").trim().toLowerCase()] || String(status || "disponible");
+}
+
 function formatDate(value) {
   if (!value) {
     return "Sin fecha";
@@ -2490,7 +2507,7 @@ function renderInventoryList() {
               <span class="expiration-pill is-${escapeHtml(providerExpirationStatus.level)}">Proveedor: ${escapeHtml(providerExpirationStatus.label)}</span>
             </small>
           </span>
-          <em>${escapeHtml(item.estado || "disponible")}</em>
+          <em>${escapeHtml(formatInventoryStatus(item.estado))}</em>
         </button>
       `;
     })

@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const crypto = require("node:crypto");
+const os = require("node:os");
 const path = require("node:path");
 const express = require("express");
 const session = require("express-session");
@@ -51,7 +52,9 @@ const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, "public");
 const isProduction = process.env.NODE_ENV === "production";
 const host = process.env.HOST || (isProduction ? "0.0.0.0" : "127.0.0.1");
-const trustProxy = process.env.TRUST_PROXY === "true" || process.env.TRUST_PROXY === "1";
+const trustProxy = isProduction
+  ? process.env.TRUST_PROXY !== "false" && process.env.TRUST_PROXY !== "0"
+  : process.env.TRUST_PROXY === "true" || process.env.TRUST_PROXY === "1";
 const catalogStore = createCatalogStore();
 const localCatalogStore = new JsonCatalogStore(process.env.CATALOG_JSON_PATH || "productos.json");
 const orderStore = createOrderStore();
@@ -85,10 +88,11 @@ const configuredSessionMaxAgeHours = Number(process.env.SESSION_MAX_AGE_HOURS);
 const sessionMaxAgeHours =
   Number.isFinite(configuredSessionMaxAgeHours) && configuredSessionMaxAgeHours > 0 ? configuredSessionMaxAgeHours : 8;
 const sessionMaxAgeMs = 1000 * 60 * 60 * sessionMaxAgeHours;
+const defaultSessionFileDir = isProduction ? path.join(os.tmpdir(), "mawg-streaming-sessions") : ".sessions";
 const sessionStore =
   isProduction || process.env.SESSION_STORE === "file"
     ? new FileSessionStore({
-        directory: process.env.SESSION_FILE_DIR || ".sessions",
+        directory: process.env.SESSION_FILE_DIR || defaultSessionFileDir,
         ttlMs: sessionMaxAgeMs,
       })
     : undefined;
@@ -1119,7 +1123,7 @@ async function createInventoryFromProviderPurchase(purchase) {
       referencia_compra: purchase.referencia_pago || purchase.compra_id,
       fecha_compra: purchase.fecha_compra,
       fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
-      estado: "disponible",
+      estado: "reservado",
       estado_control: "Generado desde compra recibida",
       notas: [purchase.notas, `Compra proveedor: ${purchase.compra_id}`].filter(Boolean).join(" | "),
     });

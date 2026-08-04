@@ -1,0 +1,6 @@
+
+> streamhub-catalogo-local@1.0.0 start
+> node server.js
+
+MAWG Streaming disponible en http://127.0.0.1:3000
+Admin protegido en http://127.0.0.1:3000/admin.html
