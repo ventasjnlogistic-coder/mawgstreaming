@@ -77,7 +77,7 @@ function normalizeProductImage(value) {
     return image;
   }
 
-  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(driveFileId)}&sz=w1200`;
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(driveFileId)}&sz=w800`;
 }
 
 function normalizeProduct(product = {}) {

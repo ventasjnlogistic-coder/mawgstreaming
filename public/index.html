@@ -7,20 +7,101 @@
       name="description"
       content="Catalogo de cuentas premium, combos digitales y accesos de streaming con stock visible, precios claros y compra directa por WhatsApp."
     />
+    <meta name="robots" content="index, follow" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="MAWG Streaming | Cuentas Premium" />
+    <meta
+      property="og:description"
+      content="Cuentas de streaming, accesos premium y combos digitales con compra directa por WhatsApp."
+    />
+    <meta property="og:url" content="https://mawgstreaming.onrender.com/" />
+    <meta property="og:image" content="https://mawgstreaming.onrender.com/assets/images/LogoMawg-512.webp" />
+    <meta property="og:locale" content="es_PE" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#009b63" />
     <title>MAWG Streaming | Cuentas Premium</title>
+    <link rel="canonical" href="https://mawgstreaming.onrender.com/" />
+    <link rel="icon" href="assets/images/LogoMawg-256.webp" />
+    <link rel="apple-touch-icon" href="assets/images/LogoMawg-512.webp" />
+    <link rel="manifest" href="/site.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://drive.google.com" />
+    <link rel="dns-prefetch" href="https://drive.google.com" />
+    <link rel="preload" as="image" href="assets/images/LogoMawg-256.webp" type="image/webp" />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://mawgstreaming.onrender.com/#organization",
+            "name": "MAWG Streaming",
+            "url": "https://mawgstreaming.onrender.com/",
+            "logo": "https://mawgstreaming.onrender.com/assets/images/LogoMawg-512.webp",
+            "contactPoint": [
+              {
+                "@type": "ContactPoint",
+                "telephone": "+51 921 217 484",
+                "contactType": "sales",
+                "areaServed": "PE",
+                "availableLanguage": "es"
+              },
+              {
+                "@type": "ContactPoint",
+                "telephone": "+51 921 217 484",
+                "contactType": "customer support",
+                "areaServed": "PE",
+                "availableLanguage": "es"
+              }
+            ]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://mawgstreaming.onrender.com/#website",
+            "name": "MAWG Streaming",
+            "url": "https://mawgstreaming.onrender.com/",
+            "publisher": {
+              "@id": "https://mawgstreaming.onrender.com/#organization"
+            },
+            "inLanguage": "es-PE"
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://mawgstreaming.onrender.com/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Como compro una cuenta o acceso digital?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Selecciona un producto del catalogo, elige un metodo de pago, genera tu pedido y adjunta el comprobante para que el equipo valide y entregue el acceso."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "La entrega es inmediata?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "La entrega depende del stock disponible y la validacion del pago. El equipo confirma el pedido por WhatsApp."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <header class="site-header">
       <a class="brand" href="#inicio" aria-label="MAWG Streaming inicio">
         <span class="brand-mark">
-          <img class="brand-mark-logo" src="assets/images/LogoMawg.jpeg" alt="Logo MAWG Streaming" />
+          <img class="brand-mark-logo" src="assets/images/LogoMawg-256.webp" alt="Logo MAWG Streaming" width="40" height="40" />
         </span>
         <span>MAWG Streaming</span>
       </a>
@@ -298,7 +379,7 @@
                 <h3>Paga con Yape</h3>
                 <p class="payment-help">Escanea el QR o usa el numero visible. Luego adjunta tu comprobante para validarlo.</p>
               </div>
-              <img class="qr-image" src="assets/images/YapeMawg.jpeg" alt="QR para pagar con Yape" />
+              <img class="qr-image" src="assets/images/YapeMawg-720.webp" alt="QR para pagar con Yape" width="720" height="1080" loading="lazy" decoding="async" />
               <div class="payment-detail">
                 <span>Numero</span>
                 <strong data-payment-number>921 217 484</strong>
@@ -326,7 +407,7 @@
                 <h3>Transferencia Dale inmediata</h3>
                 <p class="payment-help">Escanea el QR o usa el numero visible. Luego adjunta tu comprobante para validarlo.</p>
               </div>
-              <img class="qr-image" src="assets/images/DaleMawg.jpeg" alt="QR para pagar con Dale" />
+              <img class="qr-image" src="assets/images/DaleMawg-720.webp" alt="QR para pagar con Dale" width="720" height="1080" loading="lazy" decoding="async" />
               <div class="payment-detail">
                 <span>Numero Dale</span>
                 <strong data-payment-number>921 217 484</strong>
@@ -427,6 +508,6 @@
       </section>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js" defer></script>
   </body>
 </html>

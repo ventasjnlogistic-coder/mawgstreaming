@@ -1,0 +1,18 @@
+{
+  "name": "MAWG Streaming",
+  "short_name": "MAWG",
+  "description": "Catalogo de cuentas premium, combos digitales y accesos de streaming.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#009b63",
+  "icons": [
+    {
+      "src": "/assets/images/LogoMawg-512.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,5 +1,4 @@
 const JsonCatalogStore = require("./jsonCatalogStore");
-const GoogleSheetsCatalogStore = require("./googleSheetsCatalogStore");
 const AppsScriptCatalogStore = require("./appsScriptCatalogStore");
 
 function hasAppsScriptConfig(env) {
@@ -35,6 +34,16 @@ function createCatalogStore(env = process.env) {
         "CATALOG_STORAGE=sheets sin credenciales completas. Se usara productos.json como respaldo local."
       );
     } else {
+      let GoogleSheetsCatalogStore;
+      try {
+        GoogleSheetsCatalogStore = require("./googleSheetsCatalogStore");
+      } catch (error) {
+        console.warn(
+          "CATALOG_STORAGE=sheets requiere instalar googleapis. Se usara productos.json como respaldo local."
+        );
+        return new JsonCatalogStore(env.CATALOG_JSON_PATH || "productos.json");
+      }
+
       return new GoogleSheetsCatalogStore({
         spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
         range: env.GOOGLE_SHEETS_RANGE,

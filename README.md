@@ -63,17 +63,22 @@ APPS_SCRIPT_CATALOG_URL=<url_del_web_app_de_apps_script>
 APPS_SCRIPT_ADMIN_TOKEN=<token_admin>
 APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID=<id_carpeta_drive>
 APPS_SCRIPT_TIMEOUT_MS=15000
+PUBLIC_API_CACHE_TTL_MS=30000
 PROOF_UPLOAD_MAX_MB=8
 ```
 
 El token real vive en `.env`, que no se versiona. Ese valor debe coincidir exactamente con `ADMIN_TOKEN` dentro del codigo desplegado en Google Apps Script. `APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID` debe ser el ID de una carpeta de Google Drive donde se guardaran imagenes y PDF de comprobantes. Si cambias el token, el folder o el codigo de Apps Script, vuelve a desplegar el Web App.
+
+`PUBLIC_API_CACHE_TTL_MS` controla el cache corto de la tienda para catalogo, metodos de pago y configuracion. Por defecto usa `30000` milisegundos. Si necesitas que todo sea inmediato puedes usar `0`; si Apps Script esta lento, puedes subirlo a `60000`.
+
+`PROOF_UPLOAD_MAX_MB` controla el tamano maximo del archivo de comprobante. La app acepta un solo archivo y limita la cantidad/tamano de campos del formulario para proteger el servidor frente a cargas multipart abusivas.
 
 ## Despliegue en Render
 
 Render ejecuta este proyecto como un servicio web Node/Express normal. Usa:
 
 ```text
-Build Command: npm install
+Build Command: npm install && npm run optimize:images && npm run build
 Start Command: npm start
 ```
 
@@ -88,6 +93,7 @@ APPS_SCRIPT_CATALOG_URL=<url_del_web_app_de_apps_script>
 APPS_SCRIPT_ADMIN_TOKEN=<token_admin>
 APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID=<id_carpeta_drive>
 APPS_SCRIPT_TIMEOUT_MS=15000
+PUBLIC_API_CACHE_TTL_MS=30000
 ADMIN_USER=admin-de-respaldo
 ADMIN_PASSWORD=clave-de-respaldo
 SESSION_SECRET=una-clave-larga-y-segura
@@ -133,8 +139,36 @@ Notas:
 - `id` y `nombre` son obligatorios.
 - `estado` debe ser `disponible` o `agotado`.
 - `precio` puede ser numero o quedar vacio.
-- `imagen` puede ser una URL de Drive, una URL publica o una ruta publica del sitio, por ejemplo `assets/images/Netflix.jpg`. Si pegas un enlace de Drive como `https://drive.google.com/file/d/ID/view`, el admin/backend lo normaliza a `https://drive.google.com/thumbnail?id=ID&sz=w1200`.
+- `imagen` puede ser una URL de Drive, una URL publica o una ruta publica del sitio, por ejemplo `assets/images/Netflix.jpg`. Si pegas un enlace de Drive como `https://drive.google.com/file/d/ID/view`, el admin/backend lo normaliza a `https://drive.google.com/thumbnail?id=ID&sz=w800`.
 - `componentes` es opcional. Para combos, guarda un JSON con productos individuales, por ejemplo `[{"id":"netflix-premium","nombre":"Netflix Premium","producto_id":"netflix-premium"},{"id":"Disney_Premiun","nombre":"Disney Premiun","producto_id":"Disney_Premiun"}]`.
+
+## Optimizacion tecnica
+
+La app sirve HTML, CSS y JavaScript con compresion `gzip` cuando el navegador lo solicita. Los assets publicos usan cache, mientras que el HTML y `admin.js` evitan cache agresiva para no mostrar informacion antigua del panel.
+
+Para revisar pesos antes de publicar:
+
+```bash
+npm run audit:assets
+```
+
+Para generar CSS/JS minificados:
+
+```bash
+npm run build
+```
+
+Si reemplazas el logo o los QR locales, regenera las versiones WebP optimizadas:
+
+```bash
+npm run optimize:images
+```
+
+Buenas practicas para imagenes:
+
+- Productos en Google Drive: sube imagenes ya comprimidas, idealmente menos de `150 KB`, con ancho entre `800px` y `1200px`.
+- QR y logos locales: si se reemplazan, usa archivos livianos. Evita imagenes mayores a `180 KB` salvo que sea necesario.
+- Las imagenes de producto de Drive se solicitan como miniatura `w800` para equilibrar calidad y velocidad.
 
 La plantilla de Apps Script crea automaticamente una segunda pestana llamada `Pedidos` cuando llega el primer pedido. Si prefieres crearla manualmente, usa estos encabezados en `A1:T1`:
 
@@ -241,6 +275,8 @@ APPS_SCRIPT_TIMEOUT_MS=15000
 PROOF_UPLOAD_MAX_MB=8
 ```
 
+Los comprobantes aceptan un solo archivo de imagen o PDF. Si el formulario supera los limites de seguridad, la API responde con un mensaje indicando el campo o limite afectado.
+
 Reinicia el servidor local:
 
 ```bash
@@ -317,7 +353,7 @@ GOOGLE_SERVICE_ACCOUNT_EMAIL=cuenta@proyecto.iam.gserviceaccount.com
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
-Para nuevos despliegues, usa el modo Apps Script porque requiere menos configuracion local.
+Para nuevos despliegues, usa el modo Apps Script porque requiere menos configuracion local. El paquete `googleapis` no se instala por defecto para mantener el despliegue mas liviano y sin dependencias vulnerables heredadas; si necesitas reactivar este modo, instala `googleapis` y valida nuevamente con `npm audit`.
 
 ## Estructura
 

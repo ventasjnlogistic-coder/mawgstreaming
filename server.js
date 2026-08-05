@@ -1,11 +1,13 @@
 require("dotenv").config();
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const zlib = require("node:zlib");
+const Busboy = require("busboy");
 const express = require("express");
 const session = require("express-session");
-const multer = require("multer");
 const { createCatalogStore } = require("./src/services/catalog");
 const JsonCatalogStore = require("./src/services/catalog/jsonCatalogStore");
 const { normalizeProduct, validateProduct } = require("./src/services/catalog/validation");
@@ -52,6 +54,8 @@ const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, "public");
 const isProduction = process.env.NODE_ENV === "production";
 const host = process.env.HOST || (isProduction ? "0.0.0.0" : "127.0.0.1");
+const siteUrl = String(process.env.SITE_URL || "").replace(/\/+$/, "");
+const compressedAssetCache = new Map();
 const trustProxy = isProduction
   ? process.env.TRUST_PROXY !== "false" && process.env.TRUST_PROXY !== "0"
   : process.env.TRUST_PROXY === "true" || process.env.TRUST_PROXY === "1";
@@ -99,25 +103,11 @@ const sessionStore =
 const configuredProofUploadMaxMb = Number(process.env.PROOF_UPLOAD_MAX_MB);
 const proofUploadMaxMb = Number.isFinite(configuredProofUploadMaxMb) && configuredProofUploadMaxMb > 0 ? configuredProofUploadMaxMb : 8;
 const proofUploadMaxBytes = Math.max(1, proofUploadMaxMb) * 1024 * 1024;
-const proofUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: proofUploadMaxBytes,
-    files: 1,
-  },
-  fileFilter: (_req, file, callback) => {
-    const isAllowed = file.mimetype === "application/pdf" || file.mimetype.startsWith("image/");
-
-    if (!isAllowed) {
-      const error = new Error("Solo se aceptan imagenes o PDF como comprobante.");
-      error.statusCode = 400;
-      callback(error);
-      return;
-    }
-
-    callback(null, true);
-  },
-});
+const proofUploadFieldValueMaxBytes = 16 * 1024;
+const configuredPublicApiCacheTtlMs = Number(process.env.PUBLIC_API_CACHE_TTL_MS);
+const publicApiCacheTtlMs =
+  Number.isFinite(configuredPublicApiCacheTtlMs) && configuredPublicApiCacheTtlMs >= 0 ? configuredPublicApiCacheTtlMs : 30 * 1000;
+const publicApiCache = new Map();
 
 function setSecurityHeaders(_req, res, next) {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -125,6 +115,88 @@ function setSecurityHeaders(_req, res, next) {
   res.setHeader("Referrer-Policy", "same-origin");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   next();
+}
+
+function getPublicBaseUrl(req) {
+  if (siteUrl) {
+    return siteUrl;
+  }
+
+  return `${req.protocol}://${req.get("host")}`;
+}
+
+function getContentType(fileName) {
+  const extension = path.extname(fileName).toLowerCase();
+  const contentTypes = {
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
+  };
+
+  return contentTypes[extension] || "application/octet-stream";
+}
+
+function acceptsGzip(req) {
+  return /\bgzip\b/.test(String(req.get("accept-encoding") || ""));
+}
+
+function getCompressedAsset(filePath) {
+  const stat = fs.statSync(filePath);
+  const cached = compressedAssetCache.get(filePath);
+
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached;
+  }
+
+  const buffer = zlib.gzipSync(fs.readFileSync(filePath), { level: zlib.constants.Z_BEST_SPEED });
+  const asset = {
+    buffer,
+    etag: `"gz-${crypto.createHash("sha1").update(buffer).digest("hex")}"`,
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+  };
+
+  compressedAssetCache.set(filePath, asset);
+
+  return asset;
+}
+
+function sendPublicFile(req, res, fileName, cacheControl) {
+  const distPath = path.join(publicDir, "dist", fileName);
+  const sourcePath = path.join(publicDir, fileName);
+  const filePath = isProduction && fs.existsSync(distPath) ? distPath : sourcePath;
+
+  res.setHeader("Cache-Control", cacheControl);
+  res.setHeader("Vary", "Accept-Encoding");
+
+  if (acceptsGzip(req)) {
+    const asset = getCompressedAsset(filePath);
+
+    if (req.get("if-none-match") === asset.etag) {
+      res.status(304).end();
+      return;
+    }
+
+    res.setHeader("Content-Encoding", "gzip");
+    res.setHeader("Content-Length", String(asset.buffer.length));
+    res.setHeader("ETag", asset.etag);
+    res.type(getContentType(fileName));
+    res.send(asset.buffer);
+    return;
+  }
+
+  res.sendFile(filePath);
+}
+
+function sendPublicHtml(req, res, fileName) {
+  sendPublicFile(req, res, fileName, "no-cache");
+}
+
+function sendCachedAsset(req, res, fileName, cacheControl = "public, max-age=3600") {
+  sendPublicFile(req, res, fileName, cacheControl);
 }
 
 function createRateLimiter({ windowMs, max, message }) {
@@ -251,6 +323,81 @@ function logUnexpectedError(error) {
   }
 }
 
+async function getCachedPublicPayload(key, loader) {
+  if (publicApiCacheTtlMs === 0) {
+    const value = await loader();
+    const json = JSON.stringify(value);
+    return {
+      json,
+      gzip: zlib.gzipSync(json, { level: zlib.constants.Z_BEST_SPEED }),
+      etag: `"json-${crypto.createHash("sha1").update(json).digest("hex")}"`,
+    };
+  }
+
+  const now = Date.now();
+  const cached = publicApiCache.get(key);
+
+  if (cached && cached.expiresAt > now) {
+    return cached.payload;
+  }
+
+  const value = await loader();
+  const json = JSON.stringify(value);
+  const payload = {
+    json,
+    gzip: zlib.gzipSync(json, { level: zlib.constants.Z_BEST_SPEED }),
+    etag: `"json-${crypto.createHash("sha1").update(json).digest("hex")}"`,
+  };
+
+  publicApiCache.set(key, {
+    payload,
+    expiresAt: now + publicApiCacheTtlMs,
+  });
+  return payload;
+}
+
+function clearPublicApiCache(...keys) {
+  if (keys.length === 0) {
+    publicApiCache.clear();
+    return;
+  }
+
+  keys.forEach((key) => publicApiCache.delete(key));
+}
+
+function setPublicApiCacheHeader(res) {
+  if (publicApiCacheTtlMs <= 0) {
+    res.setHeader("Cache-Control", "no-store");
+    return;
+  }
+
+  const maxAgeSeconds = Math.max(1, Math.floor(publicApiCacheTtlMs / 1000));
+  res.setHeader("Cache-Control", `public, max-age=${maxAgeSeconds}, stale-while-revalidate=${maxAgeSeconds * 2}`);
+}
+
+async function sendPublicApiJson(req, res, key, loader) {
+  const payload = await getCachedPublicPayload(key, loader);
+
+  setPublicApiCacheHeader(res);
+  res.setHeader("ETag", payload.etag);
+  res.setHeader("Vary", "Accept-Encoding");
+  res.type("application/json");
+
+  if (req.get("if-none-match") === payload.etag) {
+    res.status(304).end();
+    return;
+  }
+
+  if (acceptsGzip(req)) {
+    res.setHeader("Content-Encoding", "gzip");
+    res.setHeader("Content-Length", String(payload.gzip.length));
+    res.send(payload.gzip);
+    return;
+  }
+
+  res.send(payload.json);
+}
+
 function buildAuditEvent(req, { entidad, entidad_id, accion, antes = {}, despues = {}, detalles = {} }) {
   return {
     evento_id: `AUD-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
@@ -275,19 +422,131 @@ async function audit(req, event) {
 }
 
 function handleProofUpload(req, res, next) {
-  proofUpload.single("comprobante_archivo")(req, res, (error) => {
-    if (!error) {
-      next();
+  if (!String(req.headers["content-type"] || "").toLowerCase().includes("multipart/form-data")) {
+    next();
+    return;
+  }
+
+  const fields = {};
+  let uploadedFile = null;
+  let completed = false;
+  let responded = false;
+
+  function fail(message, statusCode = 400) {
+    if (responded) {
       return;
     }
 
-    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
-      res.status(400).json({ error: `El comprobante no debe superar ${proofUploadMaxMb} MB.` });
+    responded = true;
+    req.unpipe();
+    res.status(statusCode).json({ error: message });
+  }
+
+  let busboy;
+  try {
+    busboy = Busboy({
+      headers: req.headers,
+      limits: {
+        fieldNameSize: 80,
+        fieldSize: proofUploadFieldValueMaxBytes,
+        fields: 12,
+        fileSize: proofUploadMaxBytes,
+        files: 1,
+        parts: 16,
+      },
+    });
+  } catch {
+    fail("No se pudo leer el formulario del comprobante.");
+    return;
+  }
+
+  busboy.on("field", (name, value) => {
+    if (responded) {
       return;
     }
-
-    res.status(error.statusCode || 400).json({ error: error.message || "No se pudo leer el archivo del comprobante." });
+    fields[name] = value;
   });
+
+  busboy.on("file", (name, stream, info) => {
+    const chunks = [];
+    let size = 0;
+    let truncated = false;
+    const mimeType = String(info.mimeType || "application/octet-stream");
+
+    if (responded) {
+      stream.resume();
+      return;
+    }
+
+    if (name !== "comprobante_archivo") {
+      stream.resume();
+      fail("El archivo adjunto no corresponde al campo esperado.");
+      return;
+    }
+
+    if (uploadedFile) {
+      stream.resume();
+      fail("Solo puedes adjuntar un comprobante.");
+      return;
+    }
+
+    if (mimeType !== "application/pdf" && !mimeType.startsWith("image/")) {
+      stream.resume();
+      fail("Solo se aceptan imagenes o PDF como comprobante.");
+      return;
+    }
+
+    stream.on("limit", () => {
+      truncated = true;
+      fail(`El comprobante no debe superar ${proofUploadMaxMb} MB.`);
+    });
+
+    stream.on("data", (chunk) => {
+      if (responded) {
+        return;
+      }
+
+      size += chunk.length;
+      chunks.push(chunk);
+    });
+
+    stream.on("end", () => {
+      if (responded || truncated) {
+        return;
+      }
+
+      uploadedFile = {
+        originalname: info.filename || "comprobante",
+        mimetype: mimeType,
+        size,
+        buffer: Buffer.concat(chunks),
+      };
+    });
+  });
+
+  busboy.on("fieldsLimit", () => fail("El formulario tiene demasiados campos."));
+  busboy.on("filesLimit", () => fail("Solo puedes adjuntar un comprobante."));
+  busboy.on("partsLimit", () => fail("El formulario tiene demasiadas partes."));
+  busboy.on("error", () => fail("No se pudo leer el archivo del comprobante."));
+  busboy.on("finish", () => {
+    completed = true;
+
+    if (responded) {
+      return;
+    }
+
+    req.body = fields;
+    req.file = uploadedFile;
+    next();
+  });
+
+  req.on("aborted", () => {
+    if (!completed) {
+      fail("La carga del comprobante fue cancelada.");
+    }
+  });
+
+  req.pipe(busboy);
 }
 
 function proofFileToPayload(file) {
@@ -1318,9 +1577,9 @@ async function confirmRenewal(id, payload = {}) {
   };
 }
 
-app.get("/api/productos", async (_req, res) => {
+app.get("/api/productos", async (req, res) => {
   try {
-    res.json(await readProductsWithStock());
+    await sendPublicApiJson(req, res, "products-with-stock", readProductsWithStock);
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudo cargar el catalogo." });
@@ -1351,18 +1610,18 @@ app.get("/api/health/productos", async (_req, res) => {
   }
 });
 
-app.get("/api/metodos-pago", async (_req, res) => {
+app.get("/api/metodos-pago", async (req, res) => {
   try {
-    res.json(await paymentMethodStore.listMethods());
+    await sendPublicApiJson(req, res, "payment-methods", () => paymentMethodStore.listMethods());
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudieron cargar los metodos de pago." });
   }
 });
 
-app.get("/api/configuracion-sitio", async (_req, res) => {
+app.get("/api/configuracion-sitio", async (req, res) => {
   try {
-    res.json(await siteSettingStore.listSettings());
+    await sendPublicApiJson(req, res, "site-settings", () => siteSettingStore.listSettings());
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudo cargar la configuracion del sitio." });
@@ -1474,6 +1733,7 @@ app.put("/api/admin/configuracion-sitio/:id", requirePermission("plantillas"), a
       despues: saved,
       detalles: { nombre: saved.nombre },
     });
+    clearPublicApiCache("site-settings");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1546,7 +1806,9 @@ app.post("/api/admin/productos", requirePermission("productos"), async (req, res
       return;
     }
 
-    res.status(201).json(await createProduct(product));
+    const saved = await createProduct(product);
+    clearPublicApiCache("products-with-stock");
+    res.status(201).json(saved);
   } catch (error) {
     logUnexpectedError(error);
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo crear el producto." });
@@ -1563,7 +1825,9 @@ app.put("/api/admin/productos/:id", requirePermission("productos"), async (req, 
       return;
     }
 
-    res.json(await updateProduct(req.params.id, product));
+    const saved = await updateProduct(req.params.id, product);
+    clearPublicApiCache("products-with-stock");
+    res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo actualizar el producto." });
@@ -1573,6 +1837,7 @@ app.put("/api/admin/productos/:id", requirePermission("productos"), async (req, 
 app.delete("/api/admin/productos/:id", requirePermission("productos"), async (req, res) => {
   try {
     await deleteProduct(req.params.id);
+    clearPublicApiCache("products-with-stock");
     res.status(204).end();
   } catch (error) {
     logUnexpectedError(error);
@@ -1599,6 +1864,7 @@ app.post("/api/admin/inventario", requirePermission("inventario"), async (req, r
       despues: item,
       detalles: { producto: item.producto_nombre || item.producto_id, proveedor: item.proveedor },
     });
+    clearPublicApiCache("products-with-stock");
     res.status(201).json(item);
   } catch (error) {
     logUnexpectedError(error);
@@ -1626,6 +1892,9 @@ async function handleBulkInventoryUpdate(req, res) {
       },
     });
 
+    if (updatedItems.length > 0) {
+      clearPublicApiCache("products-with-stock");
+    }
     res.json({ updated: updatedItems.length, items: updatedItems });
   } catch (error) {
     logUnexpectedError(error);
@@ -1656,6 +1925,7 @@ app.put("/api/admin/inventario/:id", requirePermission("inventario"), async (req
       despues: saved,
       detalles: { producto: saved.producto_nombre || saved.producto_id, proveedor: saved.proveedor },
     });
+    clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1675,6 +1945,7 @@ app.post("/api/admin/inventario/:id/liberar", requirePermission("inventario"), a
       despues: saved,
       detalles: { pedido_id: before.pedido_id || "" },
     });
+    clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1694,6 +1965,7 @@ app.put("/api/admin/inventario/:id/renovar", requirePermission("inventario"), as
       despues: saved,
       detalles: { vencimiento_anterior: before.fecha_vencimiento_cliente || "", vencimiento_nuevo: saved.fecha_vencimiento_cliente || "" },
     });
+    clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1859,6 +2131,9 @@ app.post("/api/admin/compras-proveedor", requirePermission("proveedores"), async
       despues: purchase,
       detalles: { proveedor: purchase.proveedor_nombre || purchase.proveedor_id, cantidad: purchase.cantidad, inventario_generado: purchase.inventario_generado || 0 },
     });
+    if (Number(purchase.inventario_generado || 0) > 0) {
+      clearPublicApiCache("products-with-stock");
+    }
     res.status(201).json(purchase);
   } catch (error) {
     logUnexpectedError(error);
@@ -1878,6 +2153,9 @@ app.put("/api/admin/compras-proveedor/:id", requirePermission("proveedores"), as
       despues: purchase,
       detalles: { proveedor: purchase.proveedor_nombre || purchase.proveedor_id, cantidad: purchase.cantidad, inventario_generado: purchase.inventario_generado || 0 },
     });
+    if (Number(purchase.inventario_generado || 0) > 0 || before.estado !== purchase.estado) {
+      clearPublicApiCache("products-with-stock");
+    }
     res.json(purchase);
   } catch (error) {
     logUnexpectedError(error);
@@ -1901,34 +2179,83 @@ app.get(["/admin", "/admin.html"], (req, res) => {
     return;
   }
 
-  res.sendFile(path.join(publicDir, "admin.html"));
+  sendPublicHtml(req, res, "admin.html");
 });
 
-app.get(["/", "/index.html"], (_req, res) => {
-  res.sendFile(path.join(publicDir, "index.html"));
+app.get(["/", "/index.html"], (req, res) => {
+  sendPublicHtml(req, res, "index.html");
 });
 
-app.get("/login.html", (_req, res) => {
-  res.sendFile(path.join(publicDir, "login.html"));
+app.get("/login.html", (req, res) => {
+  sendPublicHtml(req, res, "login.html");
 });
 
-app.get("/styles.css", (_req, res) => {
-  res.sendFile(path.join(publicDir, "styles.css"));
+app.get("/styles.css", (req, res) => {
+  sendCachedAsset(req, res, "styles.css");
 });
 
-app.get("/script.js", (_req, res) => {
-  res.sendFile(path.join(publicDir, "script.js"));
+app.get("/script.js", (req, res) => {
+  sendCachedAsset(req, res, "script.js");
 });
 
-app.get("/login.js", (_req, res) => {
-  res.sendFile(path.join(publicDir, "login.js"));
+app.get("/login.js", (req, res) => {
+  sendCachedAsset(req, res, "login.js");
 });
 
-app.get("/admin.js", requireAuth, (_req, res) => {
-  res.sendFile(path.join(publicDir, "admin.js"));
+app.get("/admin.js", requireAuth, (req, res) => {
+  sendCachedAsset(req, res, "admin.js", "private, no-store");
 });
 
-app.use("/assets", express.static(path.join(publicDir, "assets")));
+app.get("/site.webmanifest", (req, res) => {
+  sendCachedAsset(req, res, "site.webmanifest", "public, max-age=86400");
+});
+
+app.get("/favicon.ico", (_req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=2592000");
+  res.type("image/webp");
+  res.sendFile(path.join(publicDir, "assets", "images", "LogoMawg-256.webp"));
+});
+
+app.get("/robots.txt", (req, res) => {
+  const baseUrl = getPublicBaseUrl(req);
+
+  res.type("text/plain");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.send(["User-agent: *", "Allow: /", "Disallow: /admin.html", "Disallow: /login.html", `Sitemap: ${baseUrl}/sitemap.xml`, ""].join("\n"));
+});
+
+app.get("/sitemap.xml", (req, res) => {
+  const baseUrl = getPublicBaseUrl(req);
+  const today = new Date().toISOString().slice(0, 10);
+  const urls = [
+    { loc: `${baseUrl}/`, priority: "1.0" },
+  ];
+
+  res.type("application/xml");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls
+  .map(
+    (entry) => `  <url>
+    <loc>${entry.loc}</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>${entry.priority}</priority>
+  </url>`
+  )
+  .join("\n")}
+</urlset>
+`);
+});
+
+app.use(
+  "/assets",
+  express.static(path.join(publicDir, "assets"), {
+    immutable: true,
+    maxAge: "30d",
+  })
+);
 
 async function createOrder(orderPayload) {
   const productId = String(orderPayload?.producto_id || "");
@@ -2193,6 +2520,7 @@ app.post("/api/admin/pedidos/:id/asignar-inventario", requirePermission("compras
         asignaciones: Array.isArray(result.order.asignaciones_inventario) ? result.order.asignaciones_inventario.length : 0,
       },
     });
+    clearPublicApiCache("products-with-stock");
     res.json(result);
   } catch (error) {
     logUnexpectedError(error);

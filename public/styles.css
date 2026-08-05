@@ -409,6 +409,32 @@ h3 {
   padding: clamp(3rem, 7vw, 6rem) clamp(1rem, 5vw, 5rem);
 }
 
+.section,
+.product-card,
+.category-card,
+.benefit-panel,
+.plan-card,
+.contact-card,
+.order-card {
+  content-visibility: auto;
+}
+
+.section {
+  contain-intrinsic-size: auto 720px;
+}
+
+.product-card,
+.category-card,
+.plan-card,
+.contact-card {
+  contain-intrinsic-size: auto 520px;
+}
+
+.benefit-panel,
+.order-card {
+  contain-intrinsic-size: auto 360px;
+}
+
 .section-heading {
   max-width: 760px;
   margin-bottom: 2rem;

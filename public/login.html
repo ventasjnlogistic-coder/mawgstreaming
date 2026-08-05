@@ -4,11 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Ingreso privado al panel de catalogo MAWG Streaming." />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#009b63" />
     <title>Ingreso Admin | MAWG Streaming</title>
+    <link rel="icon" href="assets/images/LogoMawg-256.webp" />
+    <link rel="apple-touch-icon" href="assets/images/LogoMawg-512.webp" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="image" href="assets/images/LogoMawg-512.webp" type="image/webp" />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
@@ -27,7 +32,7 @@
             <p>Ingresa con las credenciales configuradas para administrar el catalogo.</p>
           </div>
           <a class="login-logo-link" href="/" aria-label="Volver al catalogo MAWG Streaming">
-            <img class="login-logo" src="assets/images/LogoMawg.jpeg" alt="Logo MAWG Streaming" />
+            <img class="login-logo" src="assets/images/LogoMawg-512.webp" alt="Logo MAWG Streaming" width="512" height="512" decoding="async" />
           </a>
         </div>
 
@@ -46,6 +51,6 @@
       </section>
     </main>
 
-    <script src="login.js"></script>
+    <script src="login.js" defer></script>
   </body>
 </html>

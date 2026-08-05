@@ -102,6 +102,14 @@ function formatRichText(value) {
     .replace(/\n/g, "<br>");
 }
 
+function stripRichText(value) {
+  return String(value ?? "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(?!\s)([^*\n]+?)(?<!\s)\*/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function renderWhatsAppEmojis(message) {
   return Object.entries(whatsappEmojiMap).reduce(
     (current, [placeholder, emoji]) => current.split(placeholder).join(emoji),
@@ -162,7 +170,7 @@ function renderProductCard(product) {
   const cta = product.cta || "Comprar";
   const estadoTexto = stock > 0 ? `Stock: ${stock}` : venderSinStock ? "Sin stock, venta activa" : "Agotado";
   const imagen = product.imagen
-    ? `<img src="${escapeHtml(product.imagen)}" alt="${escapeHtml(product.nombre)}" loading="lazy" />`
+    ? `<img src="${escapeHtml(product.imagen)}" alt="${escapeHtml(product.nombre)}" loading="lazy" decoding="async" />`
     : `<div class="product-placeholder" aria-hidden="true">${escapeHtml(product.tipo || "Producto")}</div>`;
 
   return `
@@ -188,6 +196,69 @@ function renderProductCard(product) {
       </button>
     </article>
   `;
+}
+
+function toAbsoluteUrl(value) {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    return new URL(value, window.location.origin).href;
+  } catch {
+    return "";
+  }
+}
+
+function renderProductStructuredData(products = []) {
+  const schemaProducts = sortProductsForDisplay(products)
+    .filter((product) => product?.nombre)
+    .slice(0, 30)
+    .map((product) => {
+      const price = Number(product.precio);
+      const offer = {
+        "@type": "Offer",
+        "availability": normalizeState(product.estado) === "disponible" ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+        "priceCurrency": "PEN",
+        "url": `${window.location.origin}/#pedido`,
+      };
+
+      if (!Number.isNaN(price) && price > 0) {
+        offer.price = price;
+      }
+
+      return {
+        "@type": "Product",
+        "name": product.nombre,
+        "description": stripRichText(product.descripcion || product.categoria || product.tipo || "Producto digital"),
+        "category": product.categoria || product.tipo || "Producto digital",
+        ...(product.imagen ? { "image": toAbsoluteUrl(product.imagen) } : {}),
+        "brand": {
+          "@type": "Brand",
+          "name": "MAWG Streaming",
+        },
+        "offers": offer,
+      };
+    });
+
+  const existing = document.querySelector("#productStructuredData");
+
+  if (existing) {
+    existing.remove();
+  }
+
+  if (schemaProducts.length === 0) {
+    return;
+  }
+
+  const script = document.createElement("script");
+  script.id = "productStructuredData";
+  script.type = "application/ld+json";
+  script.textContent = JSON.stringify({
+    "@context": "https://schema.org",
+    "@graph": schemaProducts,
+  });
+  document.head.appendChild(script);
 }
 
 function wireBuyButtons() {
@@ -243,7 +314,7 @@ async function loadProducts() {
   showStorefrontMessage("");
 
   try {
-    const response = await fetch("/api/productos", { cache: "no-store" });
+    const response = await fetch("/api/productos");
 
     if (!response.ok) {
       throw new Error("No se pudo cargar el catalogo");
@@ -257,6 +328,7 @@ async function loadProducts() {
     }
 
     productCatalog.innerHTML = sortProductsForDisplay(products).map(renderProductCard).join("");
+    renderProductStructuredData(products);
     showStorefrontMessage("");
     wireBuyButtons();
   } catch {
@@ -310,7 +382,7 @@ function renderPaymentPanel(method) {
           <h3>${escapeHtml(method.nombre)}</h3>
           <p class="payment-help">${escapeHtml(method.instrucciones || "Realiza el pago y adjunta tu comprobante para validarlo.")}</p>
         </div>
-        ${method.qr_imagen ? `<img class="qr-image" src="${escapeHtml(method.qr_imagen)}" alt="QR ${escapeHtml(method.nombre)}" loading="lazy" />` : ""}
+        ${method.qr_imagen ? `<img class="qr-image" src="${escapeHtml(method.qr_imagen)}" alt="QR ${escapeHtml(method.nombre)}" loading="lazy" decoding="async" />` : ""}
         ${detailRows}
         ${
           copyTarget
@@ -495,7 +567,7 @@ function renderHeroShowcase(map, settings = []) {
       const position = fallback.position;
       const cardFallback = fallback.fallback;
       const image = normalizeShowcaseImage(map[`hero_card_${position}_imagen`]);
-      const imageMarkup = image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" />` : "";
+      const imageMarkup = image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async" />` : "";
       const category = getConfiguredText(map, hasShowcaseSettings, `hero_card_${position}_categoria`, cardFallback[0]);
       const title = getConfiguredText(map, hasShowcaseSettings, `hero_card_${position}_titulo`, cardFallback[1]);
       const text = getConfiguredText(map, hasShowcaseSettings, `hero_card_${position}_texto`, cardFallback[2]);
@@ -545,7 +617,7 @@ function renderCategorySection(map, settings = []) {
       const position = fallback.position;
       const cardFallback = fallback.fallback;
       const image = normalizeShowcaseImage(map[`categoria_card_${position}_imagen`]);
-      const imageMarkup = image ? `<img class="category-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" />` : "";
+      const imageMarkup = image ? `<img class="category-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async" />` : "";
       const icon = getConfiguredText(map, hasCategorySettings, `categoria_card_${position}_icono`, cardFallback[0]);
       const title = getConfiguredText(map, hasCategorySettings, `categoria_card_${position}_titulo`, cardFallback[1]);
       const text = getConfiguredText(map, hasCategorySettings, `categoria_card_${position}_texto`, cardFallback[2]);

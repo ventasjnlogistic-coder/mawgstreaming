@@ -168,6 +168,7 @@ const PROVIDER_PURCHASE_TEXT_FIELDS = [
 ];
 const PROVIDER_TEXT_FIELDS = ["contacto"];
 const PAYMENT_METHOD_TEXT_FIELDS = ["numero", "cci"];
+const RENEWAL_TEXT_FIELDS = ["cliente_contacto", "comprobante_referencia"];
 const DEFAULT_PAYMENT_METHODS = [
   ["yape", "Yape", "billetera", "Eduardo Leoncio Lujan Romero", "913344874", "", "", "assets/images/pago.png", "Escanea el QR o usa el numero visible. Luego adjunta tu comprobante para validarlo.", "activo", 1],
   ["plin", "Plin", "billetera", "MAWG Streaming", "988888888", "", "", "", "Usa el numero afiliado y confirma el pago adjuntando tu captura o PDF.", "activo", 2],
@@ -460,6 +461,7 @@ function getRenewalsSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(RENEWALS_SHEET_NAME) || spreadsheet.insertSheet(RENEWALS_SHEET_NAME);
   ensureSpecificHeaders_(sheet, RENEWAL_HEADERS);
+  ensureTextColumns_(sheet, RENEWAL_HEADERS, RENEWAL_TEXT_FIELDS);
   return sheet;
 }
 
@@ -901,7 +903,7 @@ function normalizeProductImage_(value) {
     return image;
   }
 
-  return "https://drive.google.com/thumbnail?id=" + encodeURIComponent(driveFileId) + "&sz=w1200";
+  return "https://drive.google.com/thumbnail?id=" + encodeURIComponent(driveFileId) + "&sz=w800";
 }
 
 function normalizeProductComponents_(value) {
@@ -2307,7 +2309,9 @@ function createRenewal_(renewal) {
   }
 
   assertNoOpenRenewalDuplicate_(normalized, "");
-  sheet.appendRow(renewalToRow_(normalized));
+  const nextRow = sheet.getLastRow() + 1;
+  formatTextRow_(sheet, RENEWAL_HEADERS, RENEWAL_TEXT_FIELDS, nextRow);
+  sheet.getRange(nextRow, 1, 1, RENEWAL_HEADERS.length).setValues([renewalToRow_(normalized)]);
   return normalized;
 }
 
@@ -2323,6 +2327,7 @@ function updateRenewal_(id, renewal) {
   const normalized = normalizeRenewal_(Object.assign({}, current, renewal, { renovacion_id: current.renovacion_id, actualizado_en: new Date().toISOString() }));
   validateRenewal_(normalized);
   assertNoOpenRenewalDuplicate_(normalized, current.renovacion_id);
+  formatTextRow_(sheet, RENEWAL_HEADERS, RENEWAL_TEXT_FIELDS, row);
   sheet.getRange(row, 1, 1, RENEWAL_HEADERS.length).setValues([renewalToRow_(normalized)]);
   return normalized;
 }
@@ -2398,6 +2403,7 @@ function submitRenewalProof_(id, proof, proofDriveFolderId) {
   );
 
   validateRenewal_(normalized);
+  formatTextRow_(sheet, RENEWAL_HEADERS, RENEWAL_TEXT_FIELDS, row);
   sheet.getRange(row, 1, 1, RENEWAL_HEADERS.length).setValues([renewalToRow_(normalized)]);
   return normalized;
 }
