@@ -2,7 +2,7 @@ class AppsScriptInventoryStore {
   constructor(config) {
     this.endpointUrl = config.endpointUrl;
     this.adminToken = config.adminToken;
-    this.timeoutMs = Number(config.timeoutMs || 30000);
+    this.timeoutMs = Number(config.timeoutMs || 45000);
   }
 
   createResponseError(response, data) {

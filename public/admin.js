@@ -1022,6 +1022,29 @@ function normalizePhone(value) {
   return digits;
 }
 
+function formatPhoneForDisplay(value) {
+  const rawValue = String(value || "").trim();
+  const digits = rawValue.replace(/\D/g, "");
+
+  if (!digits) {
+    return "";
+  }
+
+  if (rawValue.startsWith("+")) {
+    return `+${digits}`;
+  }
+
+  if (digits.length === 9 && digits.startsWith("9")) {
+    return `+51${digits}`;
+  }
+
+  if (digits.length >= 11 && digits.startsWith("51")) {
+    return `+${digits}`;
+  }
+
+  return rawValue || digits;
+}
+
 function renderWhatsAppEmojis(message) {
   return Object.entries(whatsappEmojiMap).reduce(
     (currentMessage, [shortcode, emoji]) => currentMessage.replaceAll(shortcode, emoji),
@@ -1809,7 +1832,7 @@ function renderGroupedRenewalModal(groups) {
           <div>
             <p class="eyebrow">Cliente</p>
             <h3>${escapeHtml(group.cliente_nombre || "Cliente sin nombre")}</h3>
-            <small>${escapeHtml(group.phone)} | ${group.items.length} cuenta${group.items.length === 1 ? "" : "s"}</small>
+            <small>${escapeHtml(formatPhoneForDisplay(group.phone))} | ${group.items.length} cuenta${group.items.length === 1 ? "" : "s"}</small>
           </div>
           <ul>${accounts}</ul>
           <button class="button button-primary compact-button send-grouped-renewal-button" type="button" data-group-index="${index}">
@@ -1910,7 +1933,7 @@ function renderBulkInventoryPreview() {
           <ul>
             <li>
               <strong>${escapeHtml(item.cuenta_usuario || "Sin usuario")}</strong>
-              <span>${escapeHtml(item.cliente_nombre || "Sin cliente")} | ${escapeHtml(item.cliente_contacto || "Sin contacto")}</span>
+              <span>${escapeHtml(item.cliente_nombre || "Sin cliente")} | ${escapeHtml(formatPhoneForDisplay(item.cliente_contacto) || item.cliente_contacto || "Sin contacto")}</span>
               <em class="expiration-pill is-${escapeHtml(expirationStatus.level)}">${escapeHtml(expirationStatus.label)}</em>
             </li>
           </ul>
@@ -2501,7 +2524,7 @@ function renderInventoryList() {
             ${item.compra_id ? `<small>Compra proveedor: ${escapeHtml(item.compra_id)}</small>` : ""}
             ${item.link_bot || item.usuario_bot ? `<small>Bot: ${escapeHtml(item.link_bot || "Sin link")} | Usuario: ${escapeHtml(item.usuario_bot || "Sin usuario")}</small>` : ""}
             <small>${item.pedido_id ? `Pedido: ${escapeHtml(item.pedido_id)}` : "Sin asignar"} | Vence: ${escapeHtml(formatDate(item.fecha_vencimiento_cliente))}</small>
-            <small>Cliente: ${escapeHtml(item.cliente_nombre || "Sin cliente")} | Contacto: ${escapeHtml(item.cliente_contacto || "Sin contacto")}</small>
+            <small>Cliente: ${escapeHtml(item.cliente_nombre || "Sin cliente")} | Contacto: ${escapeHtml(formatPhoneForDisplay(item.cliente_contacto) || item.cliente_contacto || "Sin contacto")}</small>
             <small>
               <span class="expiration-pill is-${escapeHtml(expirationStatus.level)}">Cliente: ${escapeHtml(expirationStatus.label)}</span>
               <span class="expiration-pill is-${escapeHtml(providerExpirationStatus.level)}">Proveedor: ${escapeHtml(providerExpirationStatus.label)}</span>
@@ -3158,7 +3181,7 @@ function renderRenewalDueList() {
           <div>
             <strong>${escapeHtml(item.cliente_nombre || item.cliente_contacto || item.pedido_id || "Cliente por completar")}</strong>
             <small>${escapeHtml(item.producto_nombre || item.producto_id)} | ${escapeHtml(item.inventario_id)}</small>
-            <small>${item.cliente_contacto ? `Contacto: ${escapeHtml(item.cliente_contacto)}` : "Contacto pendiente en inventario"}</small>
+            <small>${item.cliente_contacto ? `Contacto: ${escapeHtml(formatPhoneForDisplay(item.cliente_contacto) || item.cliente_contacto)}` : "Contacto pendiente en inventario"}</small>
             <small><span class="expiration-pill is-${escapeHtml(expiration.level)}">${escapeHtml(expiration.label)}</span></small>
           </div>
           <div class="renewal-due-actions">
@@ -3922,7 +3945,7 @@ function renderOrders() {
             <strong>${escapeHtml(order.pedido_id)}</strong>
             <small>${escapeHtml(order.producto_nombre || "Producto sin nombre")} | ${escapeHtml(formatPrice(order.producto_precio))}</small>
             <small>Canal: ${escapeHtml(order.canal_venta || "web")}</small>
-            <small>Cliente: ${escapeHtml(order.cliente_nombre || "Pendiente")} | ${escapeHtml(order.cliente_contacto || "Sin contacto")}</small>
+            <small>Cliente: ${escapeHtml(order.cliente_nombre || "Pendiente")} | ${escapeHtml(formatPhoneForDisplay(order.cliente_contacto) || order.cliente_contacto || "Sin contacto")}</small>
             <small>Comprobante: ${proof}</small>
             <small>Creado: ${escapeHtml(formatDate(order.creado_en))}</small>
             ${assignmentPanel}

@@ -1585,7 +1585,7 @@ app.get("/api/admin/inventario", requireAuth, async (_req, res) => {
     res.json(await readInventory());
   } catch (error) {
     logUnexpectedError(error);
-    res.status(500).json({ error: "No se pudo cargar el inventario de cuentas." });
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo cargar el inventario de cuentas." });
   }
 });
 

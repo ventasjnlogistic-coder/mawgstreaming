@@ -444,11 +444,15 @@ function getOrdersSheet_() {
   return sheet;
 }
 
-function getInventorySheet_() {
+function getInventorySheet_(options) {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(INVENTORY_SHEET_NAME) || spreadsheet.insertSheet(INVENTORY_SHEET_NAME);
   ensureSpecificHeaders_(sheet, INVENTORY_HEADERS);
-  ensureTextColumns_(sheet, INVENTORY_HEADERS, INVENTORY_TEXT_FIELDS);
+
+  if (options && options.formatText) {
+    ensureTextColumns_(sheet, INVENTORY_HEADERS, INVENTORY_TEXT_FIELDS);
+  }
+
   return sheet;
 }
 
@@ -1758,7 +1762,7 @@ function listInventory_() {
 
 function createInventoryItem_(item) {
   const normalized = normalizeInventoryItem_(item);
-  const sheet = getInventorySheet_();
+  const sheet = getInventorySheet_({ formatText: true });
 
   validateInventoryItem_(normalized);
 
@@ -1773,7 +1777,7 @@ function createInventoryItem_(item) {
 }
 
 function updateInventoryItem_(id, item) {
-  const sheet = getInventorySheet_();
+  const sheet = getInventorySheet_({ formatText: true });
   const row = findRowById_(sheet, id);
 
   if (row < 1) {
@@ -1795,7 +1799,7 @@ function updateInventoryItem_(id, item) {
 }
 
 function bulkUpdateInventoryItems_(filters, patch) {
-  const sheet = getInventorySheet_();
+  const sheet = getInventorySheet_({ formatText: true });
   const allowedFields = [
     "cuenta_usuario",
     "cuenta_clave",
@@ -1936,7 +1940,7 @@ function assignInventoryToOrder_(orderId, inventoryId, assignment) {
 
 function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
   const ordersSheet = getOrdersSheet_();
-  const inventorySheet = getInventorySheet_();
+  const inventorySheet = getInventorySheet_({ formatText: true });
   const orderRow = findOrderRowById_(ordersSheet, orderId);
   const now = new Date().toISOString();
 
