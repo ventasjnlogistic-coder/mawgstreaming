@@ -1030,12 +1030,16 @@ function formatPhoneForDisplay(value) {
     return "";
   }
 
-  if (rawValue.startsWith("+")) {
-    return `+${digits}`;
+  if (digits.length === 9 && digits.startsWith("9")) {
+    return `+51 ${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
   }
 
-  if (digits.length === 9 && digits.startsWith("9")) {
-    return `+51${digits}`;
+  if (digits.length === 11 && digits.startsWith("51")) {
+    return `+51 ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
+  }
+
+  if (rawValue.startsWith("+")) {
+    return `+${digits}`;
   }
 
   if (digits.length >= 11 && digits.startsWith("51")) {
@@ -2442,6 +2446,7 @@ async function loadProducts() {
 
 function getFilteredInventory() {
   const query = (searchInventory?.value || "").toLowerCase().trim();
+  const queryPhone = normalizePhone(query);
   const status = inventoryStatusFilter?.value || "";
   const product = inventoryProductFilter?.value || "";
   const client = (inventoryClientFilter?.value || "").toLowerCase().trim();
@@ -2467,24 +2472,27 @@ function getFilteredInventory() {
     const matchesPhone = !phone || itemPhone.includes(phone);
     const matchesDueStart = !dueStart || (dueDate && dueDate >= dueStart);
     const matchesDueEnd = !dueEnd || (dueDate && dueDate <= dueEnd);
+    const queryText = [
+      item.inventario_id,
+      item.compra_id,
+      item.producto_id,
+      item.producto_nombre,
+      item.proveedor,
+      item.celular_proveedor,
+      item.referencia_compra,
+      item.cuenta_usuario,
+      item.pedido_id,
+      item.cliente_nombre,
+      item.cliente_contacto,
+      formatPhoneForDisplay(item.cliente_contacto),
+    ]
+      .join(" ")
+      .toLowerCase();
+    const queryPhones = [item.cliente_contacto, item.celular_proveedor].map(normalizePhone).filter(Boolean);
     const matchesQuery =
       !query ||
-      [
-        item.inventario_id,
-        item.compra_id,
-        item.producto_id,
-        item.producto_nombre,
-        item.proveedor,
-        item.celular_proveedor,
-        item.referencia_compra,
-        item.cuenta_usuario,
-        item.pedido_id,
-        item.cliente_nombre,
-        item.cliente_contacto,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(query);
+      queryText.includes(query) ||
+      (queryPhone && queryPhones.some((value) => value.includes(queryPhone)));
 
     return matchesStatus && matchesProduct && matchesClient && matchesEmail && matchesPhone && matchesDueStart && matchesDueEnd && matchesQuery;
   });
