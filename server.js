@@ -789,10 +789,29 @@ const BULK_INVENTORY_UPDATE_FIELDS = new Set([
 function normalizeBulkInventoryFilters(filters = {}) {
   return {
     producto: String(filters.producto || "").trim().toLowerCase(),
-    cuenta_usuario: String(filters.cuenta_usuario || "").trim().toLowerCase(),
+    cuenta_usuario: String(filters.cuenta_usuario || "").trim(),
     proveedor: String(filters.proveedor || "").trim().toLowerCase(),
     estado: String(filters.estado || "").trim(),
   };
+}
+
+function normalizeAccountUser(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, "").trim();
+}
+
+function accountUserMatchesFilter(value, filter) {
+  const normalizedValue = normalizeAccountUser(value);
+  const normalizedFilter = normalizeAccountUser(filter);
+
+  if (!normalizedFilter) {
+    return true;
+  }
+
+  if (normalizedFilter.includes("@")) {
+    return normalizedValue === normalizedFilter;
+  }
+
+  return normalizedValue.includes(normalizedFilter);
 }
 
 function inventoryMatchesBulkFilters(item, filters) {
@@ -800,7 +819,7 @@ function inventoryMatchesBulkFilters(item, filters) {
     !filters.producto ||
     String(item.producto_id || "").toLowerCase().includes(filters.producto) ||
     String(item.producto_nombre || "").toLowerCase().includes(filters.producto);
-  const matchesUser = !filters.cuenta_usuario || String(item.cuenta_usuario || "").toLowerCase().includes(filters.cuenta_usuario);
+  const matchesUser = accountUserMatchesFilter(item.cuenta_usuario, filters.cuenta_usuario);
   const matchesProvider = !filters.proveedor || String(item.proveedor || "").toLowerCase().includes(filters.proveedor);
   const matchesStatus = !filters.estado || item.estado === filters.estado;
 

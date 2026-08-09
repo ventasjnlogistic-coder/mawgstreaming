@@ -75,14 +75,14 @@ class JsonInventoryStore {
 
   itemMatchesFilters(item, filters = {}) {
     const product = String(filters.producto || "").trim().toLowerCase();
-    const accountUser = String(filters.cuenta_usuario || "").trim().toLowerCase();
+    const accountUser = String(filters.cuenta_usuario || "").trim();
     const provider = String(filters.proveedor || "").trim().toLowerCase();
     const status = String(filters.estado || "").trim();
     const matchesProduct =
       !product ||
       String(item.producto_id || "").toLowerCase().includes(product) ||
       String(item.producto_nombre || "").toLowerCase().includes(product);
-    const matchesUser = !accountUser || String(item.cuenta_usuario || "").toLowerCase().includes(accountUser);
+    const matchesUser = accountUserMatchesFilter(item.cuenta_usuario, accountUser);
     const matchesProvider = !provider || String(item.proveedor || "").toLowerCase().includes(provider);
     const matchesStatus = !status || item.estado === status;
 
@@ -112,6 +112,25 @@ class JsonInventoryStore {
       return updatedItems;
     });
   }
+}
+
+function normalizeAccountUser(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, "").trim();
+}
+
+function accountUserMatchesFilter(value, filter) {
+  const normalizedValue = normalizeAccountUser(value);
+  const normalizedFilter = normalizeAccountUser(filter);
+
+  if (!normalizedFilter) {
+    return true;
+  }
+
+  if (normalizedFilter.includes("@")) {
+    return normalizedValue === normalizedFilter;
+  }
+
+  return normalizedValue.includes(normalizedFilter);
 }
 
 module.exports = JsonInventoryStore;

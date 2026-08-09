@@ -1022,6 +1022,25 @@ function normalizePhone(value) {
   return digits;
 }
 
+function normalizeAccountUser(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, "").trim();
+}
+
+function accountUserMatchesFilter(value, filter) {
+  const normalizedValue = normalizeAccountUser(value);
+  const normalizedFilter = normalizeAccountUser(filter);
+
+  if (!normalizedFilter) {
+    return true;
+  }
+
+  if (normalizedFilter.includes("@")) {
+    return normalizedValue === normalizedFilter;
+  }
+
+  return normalizedValue.includes(normalizedFilter);
+}
+
 function formatPhoneForDisplay(value) {
   const rawValue = String(value || "").trim();
   const digits = rawValue.replace(/\D/g, "");
@@ -2450,7 +2469,7 @@ function getFilteredInventory() {
   const status = inventoryStatusFilter?.value || "";
   const product = inventoryProductFilter?.value || "";
   const client = (inventoryClientFilter?.value || "").toLowerCase().trim();
-  const email = (inventoryEmailFilter?.value || "").toLowerCase().trim();
+  const email = inventoryEmailFilter?.value || "";
   const phone = normalizePhone(inventoryPhoneFilter?.value || "");
   const dueStart = getDateOnly(inventoryDueStartFilter?.value);
   const dueEnd = getDateOnly(inventoryDueEndFilter?.value);
@@ -2467,7 +2486,7 @@ function getFilteredInventory() {
       productValueMatches(item.producto_id || item.producto_nombre, product) ||
       productValueMatches(item.producto_nombre || item.producto_id, product);
     const matchesClient = !client || String(item.cliente_nombre || "").toLowerCase().includes(client);
-    const matchesEmail = !email || String(item.cuenta_usuario || "").toLowerCase().includes(email);
+    const matchesEmail = accountUserMatchesFilter(item.cuenta_usuario, email);
     const itemPhone = normalizePhone(item.cliente_contacto || "");
     const matchesPhone = !phone || itemPhone.includes(phone);
     const matchesDueStart = !dueStart || (dueDate && dueDate >= dueStart);
