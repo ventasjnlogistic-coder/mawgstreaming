@@ -2466,6 +2466,7 @@ async function loadProducts() {
 function getFilteredInventory() {
   const query = (searchInventory?.value || "").toLowerCase().trim();
   const queryPhone = normalizePhone(query);
+  const queryAccountUser = normalizeAccountUser(query);
   const status = inventoryStatusFilter?.value || "";
   const product = inventoryProductFilter?.value || "";
   const client = (inventoryClientFilter?.value || "").toLowerCase().trim();
@@ -2510,8 +2511,8 @@ function getFilteredInventory() {
     const queryPhones = [item.cliente_contacto, item.celular_proveedor].map(normalizePhone).filter(Boolean);
     const matchesQuery =
       !query ||
-      queryText.includes(query) ||
-      (queryPhone && queryPhones.some((value) => value.includes(queryPhone)));
+      (queryAccountUser.includes("@") && accountUserMatchesFilter(item.cuenta_usuario, query)) ||
+      (!queryAccountUser.includes("@") && (queryText.includes(query) || (queryPhone && queryPhones.some((value) => value.includes(queryPhone)))));
 
     return matchesStatus && matchesProduct && matchesClient && matchesEmail && matchesPhone && matchesDueStart && matchesDueEnd && matchesQuery;
   });
