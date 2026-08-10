@@ -471,6 +471,7 @@ function handleProofUpload(req, res, next) {
     const chunks = [];
     let size = 0;
     let truncated = false;
+    const fileName = String(info.filename || "").trim();
     const mimeType = String(info.mimeType || "application/octet-stream");
 
     if (responded) {
@@ -481,6 +482,11 @@ function handleProofUpload(req, res, next) {
     if (name !== "comprobante_archivo") {
       stream.resume();
       fail("El archivo adjunto no corresponde al campo esperado.");
+      return;
+    }
+
+    if (!fileName) {
+      stream.resume();
       return;
     }
 
@@ -516,7 +522,7 @@ function handleProofUpload(req, res, next) {
       }
 
       uploadedFile = {
-        originalname: info.filename || "comprobante",
+        originalname: fileName,
         mimetype: mimeType,
         size,
         buffer: Buffer.concat(chunks),
