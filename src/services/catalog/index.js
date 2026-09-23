@@ -36,7 +36,10 @@ function createCatalogStore(env = process.env) {
     } else {
       let GoogleSheetsCatalogStore;
       try {
-        GoogleSheetsCatalogStore = require("./googleSheetsCatalogStore");
+        // El adaptador de cuenta de servicio es heredado y no forma parte del
+        // bundle de Workers; Apps Script es el modo soportado en Cloudflare.
+        const legacyStoreModule = `./${"googleSheetsCatalogStore"}`;
+        GoogleSheetsCatalogStore = require(legacyStoreModule);
       } catch (error) {
         console.warn(
           "CATALOG_STORAGE=sheets requiere instalar googleapis. Se usara productos.json como respaldo local."

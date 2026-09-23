@@ -1,5 +1,8 @@
 require("dotenv").config();
 
+const runtimeEnv = globalThis.__MAWG_ENV__ || process.env;
+const isWorkerRuntime = Boolean(globalThis.__MAWG_ENV__);
+
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -35,6 +38,7 @@ const {
   RENEWAL_STATUSES,
 } = require("./src/services/renewals/validation");
 const FileSessionStore = require("./src/services/sessions/fileSessionStore");
+const KvSessionStore = require("./src/services/sessions/kvSessionStore");
 const {
   normalizeInventoryItem,
   validateInventoryItem,
@@ -50,33 +54,35 @@ const {
 } = require("./src/services/siteSettings/validation");
 
 const app = express();
-const port = Number(process.env.PORT || 3000);
-const publicDir = path.join(__dirname, "public");
-const isProduction = process.env.NODE_ENV === "production";
-const host = process.env.HOST || (isProduction ? "0.0.0.0" : "127.0.0.1");
-const siteUrl = String(process.env.SITE_URL || "").replace(/\/+$/, "");
+const port = Number(runtimeEnv.PORT || 3000);
+// En Workers los Assets se sirven antes de llegar a Express; el directorio
+// local solo se necesita para el servidor Node de desarrollo.
+const publicDir = path.join(typeof __dirname === "string" ? __dirname : ".", "public");
+const isProduction = runtimeEnv.NODE_ENV === "production";
+const host = runtimeEnv.HOST || (isProduction ? "0.0.0.0" : "127.0.0.1");
+const siteUrl = String(runtimeEnv.SITE_URL || "").replace(/\/+$/, "");
 const compressedAssetCache = new Map();
 const trustProxy = isProduction
-  ? process.env.TRUST_PROXY !== "false" && process.env.TRUST_PROXY !== "0"
-  : process.env.TRUST_PROXY === "true" || process.env.TRUST_PROXY === "1";
-const catalogStore = createCatalogStore();
-const localCatalogStore = new JsonCatalogStore(process.env.CATALOG_JSON_PATH || "productos.json");
-const orderStore = createOrderStore();
-const inventoryStore = createInventoryStore();
-const renewalStore = createRenewalStore();
-const paymentMethodStore = createPaymentMethodStore();
-const messageTemplateStore = createMessageTemplateStore();
-const siteSettingStore = createSiteSettingStore();
-const userStore = createUserStore();
-const supplierStore = createSupplierStore();
-const auditStore = createAuditStore();
+  ? runtimeEnv.TRUST_PROXY !== "false" && runtimeEnv.TRUST_PROXY !== "0"
+  : runtimeEnv.TRUST_PROXY === "true" || runtimeEnv.TRUST_PROXY === "1";
+const catalogStore = createCatalogStore(runtimeEnv);
+const localCatalogStore = new JsonCatalogStore(runtimeEnv.CATALOG_JSON_PATH || "productos.json");
+const orderStore = createOrderStore(runtimeEnv);
+const inventoryStore = createInventoryStore(runtimeEnv);
+const renewalStore = createRenewalStore(runtimeEnv);
+const paymentMethodStore = createPaymentMethodStore(runtimeEnv);
+const messageTemplateStore = createMessageTemplateStore(runtimeEnv);
+const siteSettingStore = createSiteSettingStore(runtimeEnv);
+const userStore = createUserStore(runtimeEnv);
+const supplierStore = createSupplierStore(runtimeEnv);
+const auditStore = createAuditStore(runtimeEnv);
 
 if (trustProxy) {
   app.set("trust proxy", 1);
 }
 
 function getRequiredEnv(name) {
-  const value = process.env[name];
+  const value = runtimeEnv[name];
 
   if (!value) {
     throw new Error(`Falta configurar ${name} en .env.`);
@@ -88,23 +94,28 @@ function getRequiredEnv(name) {
 const adminUser = getRequiredEnv("ADMIN_USER");
 const adminPassword = getRequiredEnv("ADMIN_PASSWORD");
 const sessionSecret = getRequiredEnv("SESSION_SECRET");
-const configuredSessionMaxAgeHours = Number(process.env.SESSION_MAX_AGE_HOURS);
+const configuredSessionMaxAgeHours = Number(runtimeEnv.SESSION_MAX_AGE_HOURS);
 const sessionMaxAgeHours =
   Number.isFinite(configuredSessionMaxAgeHours) && configuredSessionMaxAgeHours > 0 ? configuredSessionMaxAgeHours : 8;
 const sessionMaxAgeMs = 1000 * 60 * 60 * sessionMaxAgeHours;
 const defaultSessionFileDir = isProduction ? path.join(os.tmpdir(), "mawg-streaming-sessions") : ".sessions";
 const sessionStore =
-  isProduction || process.env.SESSION_STORE === "file"
+  globalThis.__MAWG_SESSION_KV__
+    ? new KvSessionStore({
+        kv: globalThis.__MAWG_SESSION_KV__,
+        ttlMs: sessionMaxAgeMs,
+      })
+    : isProduction || runtimeEnv.SESSION_STORE === "file"
     ? new FileSessionStore({
-        directory: process.env.SESSION_FILE_DIR || defaultSessionFileDir,
+        directory: runtimeEnv.SESSION_FILE_DIR || defaultSessionFileDir,
         ttlMs: sessionMaxAgeMs,
       })
     : undefined;
-const configuredProofUploadMaxMb = Number(process.env.PROOF_UPLOAD_MAX_MB);
+const configuredProofUploadMaxMb = Number(runtimeEnv.PROOF_UPLOAD_MAX_MB);
 const proofUploadMaxMb = Number.isFinite(configuredProofUploadMaxMb) && configuredProofUploadMaxMb > 0 ? configuredProofUploadMaxMb : 8;
 const proofUploadMaxBytes = Math.max(1, proofUploadMaxMb) * 1024 * 1024;
 const proofUploadFieldValueMaxBytes = 16 * 1024;
-const configuredPublicApiCacheTtlMs = Number(process.env.PUBLIC_API_CACHE_TTL_MS);
+const configuredPublicApiCacheTtlMs = Number(runtimeEnv.PUBLIC_API_CACHE_TTL_MS);
 const publicApiCacheTtlMs =
   Number.isFinite(configuredPublicApiCacheTtlMs) && configuredPublicApiCacheTtlMs >= 0 ? configuredPublicApiCacheTtlMs : 30 * 1000;
 const publicApiCache = new Map();
@@ -140,7 +151,9 @@ function getContentType(fileName) {
 }
 
 function acceptsGzip(req) {
-  return /\bgzip\b/.test(String(req.get("accept-encoding") || ""));
+  // El adaptador node:http de Workers ya negocia la compresion en el borde;
+  // reenviar un Buffer gzip desde Express pierde Content-Encoding.
+  return !isWorkerRuntime && /\bgzip\b/.test(String(req.get("accept-encoding") || ""));
 }
 
 function getCompressedAsset(filePath) {
@@ -227,7 +240,7 @@ function createRateLimiter({ windowMs, max, message }) {
 
 const loginRateLimit = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === "test" ? 100 : 8,
+  max: runtimeEnv.NODE_ENV === "test" ? 100 : 8,
   message: "Demasiados intentos de acceso. Intenta nuevamente en unos minutos.",
 });
 const orderRateLimit = createRateLimiter({
@@ -1654,16 +1667,16 @@ app.get("/api/configuracion-sitio", async (req, res) => {
 });
 
 app.get("/api/health/config", (_req, res) => {
-  const appsScriptUrl = String(process.env.APPS_SCRIPT_CATALOG_URL || "").trim();
-  const adminToken = String(process.env.APPS_SCRIPT_ADMIN_TOKEN || "").trim();
+  const appsScriptUrl = String(runtimeEnv.APPS_SCRIPT_CATALOG_URL || "").trim();
+  const adminToken = String(runtimeEnv.APPS_SCRIPT_ADMIN_TOKEN || "").trim();
 
   res.json({
     ok: true,
     runtime: {
-      node_env: process.env.NODE_ENV || "",
+      node_env: runtimeEnv.NODE_ENV || "",
       host,
       port,
-      catalog_storage: process.env.CATALOG_STORAGE || "",
+      catalog_storage: runtimeEnv.CATALOG_STORAGE || "",
     },
     apps_script: {
       configured: Boolean(appsScriptUrl && adminToken),

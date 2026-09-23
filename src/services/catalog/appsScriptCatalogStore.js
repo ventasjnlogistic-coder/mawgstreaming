@@ -2,7 +2,8 @@ class AppsScriptCatalogStore {
   constructor(config) {
     this.endpointUrl = config.endpointUrl;
     this.adminToken = config.adminToken;
-    this.timeoutMs = Number(config.timeoutMs || 15000);
+    this.timeoutMs = Number(config.timeoutMs || 30000);
+    this.retryDelayMs = 800;
   }
 
   createResponseError(response, data) {
@@ -48,6 +49,13 @@ class AppsScriptCatalogStore {
       }
 
       return data;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        const timeoutError = new Error("Google Apps Script demoro demasiado en responder.");
+        timeoutError.statusCode = 504;
+        throw timeoutError;
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -70,8 +78,36 @@ class AppsScriptCatalogStore {
     };
   }
 
+  isRetryableReadError(error) {
+    const statusCode = Number(error?.statusCode || 0);
+    const message = String(error?.message || "").toLowerCase();
+    return (
+      error?.name === "AbortError" ||
+      statusCode === 500 ||
+      statusCode === 502 ||
+      statusCode === 503 ||
+      statusCode === 504 ||
+      message.includes("fetch failed") ||
+      message.includes("network") ||
+      message.includes("demoro demasiado")
+    );
+  }
+
+  async requestReadWithRetry(payload = {}, options = {}) {
+    try {
+      return await this.request(payload, options);
+    } catch (error) {
+      if (!this.isRetryableReadError(error)) {
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs));
+      return this.request(payload, options);
+    }
+  }
+
   async listProducts() {
-    const data = await this.request({ action: "list" }, { method: "GET" });
+    const data = await this.requestReadWithRetry({ action: "list" }, { method: "GET" });
     return Array.isArray(data.products) ? data.products : [];
   }
 

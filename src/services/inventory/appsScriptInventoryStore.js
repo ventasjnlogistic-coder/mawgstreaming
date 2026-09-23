@@ -65,8 +65,18 @@ class AppsScriptInventoryStore {
   }
 
   isRetryableReadError(error) {
+    const statusCode = Number(error?.statusCode || 0);
     const message = String(error?.message || "").toLowerCase();
-    return error?.name === "AbortError" || message.includes("fetch failed") || message.includes("network");
+    return (
+      error?.name === "AbortError" ||
+      statusCode === 500 ||
+      statusCode === 502 ||
+      statusCode === 503 ||
+      statusCode === 504 ||
+      message.includes("fetch failed") ||
+      message.includes("network") ||
+      message.includes("demoro demasiado")
+    );
   }
 
   async requestReadWithRetry(payload = {}) {

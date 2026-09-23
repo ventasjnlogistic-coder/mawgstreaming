@@ -1,0 +1,23 @@
+name = "mawg-streaming"
+main = "src/worker.mjs"
+compatibility_date = "2026-09-16"
+compatibility_flags = ["nodejs_compat_v2", "enable_nodejs_http_server_modules"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[vars]
+NODE_ENV = "production"
+SITE_URL = "https://mawg-streaming.ventas-jnlogistic.workers.dev"
+CATALOG_STORAGE = "apps-script"
+APPS_SCRIPT_TIMEOUT_MS = "30000"
+PUBLIC_API_CACHE_TTL_MS = "30000"
+PROOF_UPLOAD_MAX_MB = "8"
+SESSION_MAX_AGE_HOURS = "24"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "2ec208f26bc7471d801aa40263095daa"
+preview_id = "ab345ac3dcde49329e48b3bc8ed93093"

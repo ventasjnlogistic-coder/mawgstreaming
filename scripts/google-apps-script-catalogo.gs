@@ -12,6 +12,8 @@ const ADMIN_TOKEN = "cambia-este-token-largo";
 const PROOF_DRIVE_FOLDER_ID = "cambia-este-id-de-carpeta-drive";
 const PROOF_FILE_PUBLIC_LINK = false;
 const SPREADSHEET_ID = "cambia-este-id-de-tu-spreadsheet";
+const READ_CACHE_TTL_SECONDS = 30;
+const READ_CACHE_KEYS = ["products", "orders", "inventory", "renewals", "payment_methods", "templates", "site_settings", "providers", "provider_purchases"];
 const DEFAULT_DELIVERY_TEMPLATE = [
   ":estrella: *MAWG Streaming te da la bienvenida*",
   "",
@@ -168,6 +170,7 @@ const PROVIDER_PURCHASE_TEXT_FIELDS = [
 ];
 const PROVIDER_TEXT_FIELDS = ["contacto"];
 const PAYMENT_METHOD_TEXT_FIELDS = ["numero", "cci"];
+const ORDER_TEXT_FIELDS = ["cliente_contacto", "comprobante_referencia"];
 const RENEWAL_TEXT_FIELDS = ["cliente_contacto", "comprobante_referencia"];
 const DEFAULT_PAYMENT_METHODS = [
   ["yape", "Yape", "billetera", "Eduardo Leoncio Lujan Romero", "913344874", "", "", "assets/images/pago.png", "Escanea el QR o usa el numero visible. Luego adjunta tu comprobante para validarlo.", "activo", 1],
@@ -248,7 +251,7 @@ function doGet(e) {
       return jsonResponse({ ok: false, error: "Accion no soportada." });
     }
 
-    return jsonResponse({ ok: true, products: listProducts_() });
+    return jsonResponse({ ok: true, products: getCachedRead_("products", listProducts_) });
   } catch (error) {
     return jsonResponse({ ok: false, error: error.message });
   }
@@ -258,6 +261,11 @@ function doPost(e) {
   try {
     const payload = parsePayload_(e);
     const action = String(payload.action || "").toLowerCase();
+
+    // No se mantienen lecturas obsoletas despues de crear, editar o eliminar.
+    if (action !== "users.auth" && !action.endsWith(".list")) {
+      invalidateReadCache_();
+    }
 
     if (action === "orders.create") {
       return jsonResponse({ ok: true, order: createOrder_(payload.order || {}) });
@@ -301,7 +309,7 @@ function doPost(e) {
     }
 
     if (action === "orders.list") {
-      return jsonResponse({ ok: true, orders: listOrders_() });
+      return jsonResponse({ ok: true, orders: getCachedRead_("orders", listOrders_) });
     }
 
     if (action === "orders.update") {
@@ -309,7 +317,7 @@ function doPost(e) {
     }
 
     if (action === "inventory.list") {
-      return jsonResponse({ ok: true, inventory: listInventory_() });
+      return jsonResponse({ ok: true, inventory: getCachedRead_("inventory", listInventory_) });
     }
 
     if (action === "inventory.create") {
@@ -333,7 +341,7 @@ function doPost(e) {
     }
 
     if (action === "renewals.list") {
-      return jsonResponse({ ok: true, renewals: listRenewals_() });
+      return jsonResponse({ ok: true, renewals: getCachedRead_("renewals", listRenewals_) });
     }
 
     if (action === "renewals.create") {
@@ -352,7 +360,7 @@ function doPost(e) {
     }
 
     if (action === "paymentmethods.list") {
-      return jsonResponse({ ok: true, payment_methods: listPaymentMethods_() });
+      return jsonResponse({ ok: true, payment_methods: getCachedRead_("payment_methods", listPaymentMethods_) });
     }
 
     if (action === "paymentmethods.create") {
@@ -369,7 +377,7 @@ function doPost(e) {
     }
 
     if (action === "templates.list") {
-      return jsonResponse({ ok: true, templates: listMessageTemplates_() });
+      return jsonResponse({ ok: true, templates: getCachedRead_("templates", listMessageTemplates_) });
     }
 
     if (action === "templates.update") {
@@ -377,7 +385,7 @@ function doPost(e) {
     }
 
     if (action === "sitesettings.list") {
-      return jsonResponse({ ok: true, site_settings: listSiteSettings_() });
+      return jsonResponse({ ok: true, site_settings: getCachedRead_("site_settings", listSiteSettings_) });
     }
 
     if (action === "sitesettings.update") {
@@ -385,7 +393,7 @@ function doPost(e) {
     }
 
     if (action === "providers.list") {
-      return jsonResponse({ ok: true, providers: listProviders_() });
+      return jsonResponse({ ok: true, providers: getCachedRead_("providers", listProviders_) });
     }
 
     if (action === "providers.create") {
@@ -397,7 +405,7 @@ function doPost(e) {
     }
 
     if (action === "providerpurchases.list") {
-      return jsonResponse({ ok: true, provider_purchases: listProviderPurchases_() });
+      return jsonResponse({ ok: true, provider_purchases: getCachedRead_("provider_purchases", listProviderPurchases_) });
     }
 
     if (action === "providerpurchases.create") {
@@ -420,6 +428,42 @@ function parsePayload_(e) {
   } catch (error) {
     return {};
   }
+}
+
+function getCachedRead_(key, loader) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "mawg:" + key;
+  const cached = cache.get(cacheKey);
+
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (error) {
+      cache.remove(cacheKey);
+    }
+  }
+
+  const value = loader();
+
+  try {
+    const serialized = JSON.stringify(value);
+    // CacheService limita cada valor a 100 KB; los listados grandes se sirven
+    // normalmente y simplemente no se cachean.
+    if (serialized.length <= 90000) {
+      cache.put(cacheKey, serialized, READ_CACHE_TTL_SECONDS);
+    }
+  } catch (error) {
+    // El cache es opcional y nunca debe impedir una lectura valida.
+  }
+
+  return value;
+}
+
+function invalidateReadCache_() {
+  const cache = CacheService.getScriptCache();
+  READ_CACHE_KEYS.forEach(function (key) {
+    cache.remove("mawg:" + key);
+  });
 }
 
 function isValidToken_(token) {
@@ -461,7 +505,6 @@ function getRenewalsSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(RENEWALS_SHEET_NAME) || spreadsheet.insertSheet(RENEWALS_SHEET_NAME);
   ensureSpecificHeaders_(sheet, RENEWAL_HEADERS);
-  ensureTextColumns_(sheet, RENEWAL_HEADERS, RENEWAL_TEXT_FIELDS);
   return sheet;
 }
 
@@ -469,7 +512,6 @@ function getPaymentMethodsSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(PAYMENT_METHODS_SHEET_NAME) || spreadsheet.insertSheet(PAYMENT_METHODS_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PAYMENT_METHOD_HEADERS);
-  ensureTextColumns_(sheet, PAYMENT_METHOD_HEADERS, PAYMENT_METHOD_TEXT_FIELDS);
   seedDefaultPaymentMethods_(sheet);
   return sheet;
 }
@@ -502,7 +544,6 @@ function getProvidersSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(PROVIDERS_SHEET_NAME) || spreadsheet.insertSheet(PROVIDERS_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PROVIDER_HEADERS);
-  ensureTextColumns_(sheet, PROVIDER_HEADERS, PROVIDER_TEXT_FIELDS);
   return sheet;
 }
 
@@ -511,7 +552,6 @@ function getProviderPurchasesSheet_() {
   const sheet = spreadsheet.getSheetByName(PROVIDER_PURCHASES_SHEET_NAME) || spreadsheet.insertSheet(PROVIDER_PURCHASES_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PROVIDER_PURCHASE_HEADERS);
   ensureColumnsByName_(sheet, PROVIDER_PURCHASE_HEADERS);
-  ensureTextColumns_(sheet, PROVIDER_PURCHASE_HEADERS, PROVIDER_PURCHASE_TEXT_FIELDS);
   return sheet;
 }
 
@@ -1007,7 +1047,9 @@ function createOrder_(order) {
     throw new Error("Ya existe un pedido con ese ID.");
   }
 
-  sheet.appendRow(orderToRow_(normalized));
+  const nextRow = sheet.getLastRow() + 1;
+  formatTextRow_(sheet, ORDER_HEADERS, ORDER_TEXT_FIELDS, nextRow);
+  sheet.getRange(nextRow, 1, 1, ORDER_HEADERS.length).setValues([orderToRow_(normalized)]);
   return normalized;
 }
 
@@ -1050,6 +1092,7 @@ function submitOrderProof_(id, proof, proofDriveFolderId) {
   );
 
   validateProof_(updated);
+  formatTextRow_(sheet, ORDER_HEADERS, ORDER_TEXT_FIELDS, row);
   sheet.getRange(row, 1, 1, ORDER_HEADERS.length).setValues([orderToRow_(updated)]);
   return updated;
 }
@@ -1739,6 +1782,7 @@ function updateOrder_(id, order) {
     })
   );
 
+  formatTextRow_(sheet, ORDER_HEADERS, ORDER_TEXT_FIELDS, row);
   sheet.getRange(row, 1, 1, ORDER_HEADERS.length).setValues([orderToRow_(updated)]);
   return updated;
 }
@@ -1764,7 +1808,7 @@ function listInventory_() {
 
 function createInventoryItem_(item) {
   const normalized = normalizeInventoryItem_(item);
-  const sheet = getInventorySheet_({ formatText: true });
+  const sheet = getInventorySheet_();
 
   validateInventoryItem_(normalized);
 
@@ -1779,7 +1823,7 @@ function createInventoryItem_(item) {
 }
 
 function updateInventoryItem_(id, item) {
-  const sheet = getInventorySheet_({ formatText: true });
+  const sheet = getInventorySheet_();
   const row = findRowById_(sheet, id);
 
   if (row < 1) {
@@ -1801,7 +1845,7 @@ function updateInventoryItem_(id, item) {
 }
 
 function bulkUpdateInventoryItems_(filters, patch) {
-  const sheet = getInventorySheet_({ formatText: true });
+  const sheet = getInventorySheet_();
   const allowedFields = [
     "cuenta_usuario",
     "cuenta_clave",
@@ -1872,7 +1916,7 @@ function bulkUpdateInventoryItems_(filters, patch) {
 function normalizeBulkInventoryFilters_(filters) {
   return {
     producto: String(filters.producto || "").trim().toLowerCase(),
-    cuenta_usuario: String(filters.cuenta_usuario || "").trim().toLowerCase(),
+    cuenta_usuario: String(filters.cuenta_usuario || "").trim(),
     proveedor: String(filters.proveedor || "").trim().toLowerCase(),
     estado: String(filters.estado || "").trim(),
   };
@@ -1893,14 +1937,32 @@ function normalizeBulkInventoryPatch_(patch, allowedFields) {
 function inventoryMatchesBulkFilters_(item, filters) {
   const productId = String(item.producto_id || "").toLowerCase();
   const productName = String(item.producto_nombre || "").toLowerCase();
-  const accountUser = String(item.cuenta_usuario || "").toLowerCase();
   const provider = String(item.proveedor || "").toLowerCase();
   const matchesProduct = !filters.producto || productId.indexOf(filters.producto) >= 0 || productName.indexOf(filters.producto) >= 0;
-  const matchesUser = !filters.cuenta_usuario || accountUser.indexOf(filters.cuenta_usuario) >= 0;
+  const matchesUser = accountUserMatchesFilter_(item.cuenta_usuario, filters.cuenta_usuario);
   const matchesProvider = !filters.proveedor || provider.indexOf(filters.proveedor) >= 0;
   const matchesStatus = !filters.estado || item.estado === filters.estado;
 
   return matchesProduct && matchesUser && matchesProvider && matchesStatus;
+}
+
+function normalizeAccountUser_(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, "").trim();
+}
+
+function accountUserMatchesFilter_(value, filter) {
+  const normalizedValue = normalizeAccountUser_(value);
+  const normalizedFilter = normalizeAccountUser_(filter);
+
+  if (!normalizedFilter) {
+    return true;
+  }
+
+  if (normalizedFilter.indexOf("@") >= 0) {
+    return normalizedValue === normalizedFilter;
+  }
+
+  return normalizedValue.indexOf(normalizedFilter) >= 0;
 }
 
 function formatInventoryTextRow_(sheet, row) {
@@ -1942,7 +2004,7 @@ function assignInventoryToOrder_(orderId, inventoryId, assignment) {
 
 function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
   const ordersSheet = getOrdersSheet_();
-  const inventorySheet = getInventorySheet_({ formatText: true });
+  const inventorySheet = getInventorySheet_();
   const orderRow = findOrderRowById_(ordersSheet, orderId);
   const now = new Date().toISOString();
 
@@ -2091,6 +2153,7 @@ function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
   itemPairs.forEach(function (pair, index) {
     inventorySheet.getRange(pair.row, 1, 1, INVENTORY_HEADERS.length).setValues([inventoryItemToRow_(updatedItems[index])]);
   });
+  formatTextRow_(ordersSheet, ORDER_HEADERS, ORDER_TEXT_FIELDS, orderRow);
   ordersSheet.getRange(orderRow, 1, 1, ORDER_HEADERS.length).setValues([orderToRow_(updatedOrder)]);
 
   return { ok: true, order: updatedOrder, item: updatedItems[0], items: updatedItems };

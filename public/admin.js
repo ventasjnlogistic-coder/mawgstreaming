@@ -1583,11 +1583,26 @@ function renderReports() {
   renderReportRows(reportInventoryRows, sortReportGroups(groupReportRows(filteredInventory, (row) => row.product)).slice(0, 12), "No hay cuentas no vendidas para costear con los filtros actuales.", 5);
 }
 
-function refreshOperationalData() {
-  return Promise.all([loadProducts(), loadOrders(), loadInventory(), loadSuppliers(), loadRenewals(), loadPaymentMethods(), loadAuditEvents()]).then(() => {
-    renderDashboard();
-    renderReports();
-  });
+async function runWithConcurrency(tasks, limit = 2) {
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < tasks.length) {
+      const task = tasks[nextIndex];
+      nextIndex += 1;
+      await task();
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+}
+
+async function refreshOperationalData() {
+  // Apps Script procesa mal rafagas grandes de lecturas concurrentes. Dos
+  // solicitudes simultaneas mantienen el panel agil sin agotar sus cuotas.
+  await runWithConcurrency([loadProducts, loadOrders, loadInventory, loadSuppliers, loadRenewals, loadPaymentMethods, loadAuditEvents]);
+  renderDashboard();
+  renderReports();
 }
 
 function refreshDashboardData() {
@@ -5106,14 +5121,13 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-loadAdminSession();
-loadProducts();
-loadOrders();
-loadInventory();
-loadSuppliers();
-loadRenewals();
-loadPaymentMethods();
-loadTemplates();
-loadSiteSettings();
-loadAuditEvents();
-setAdminView(getInitialAdminView(), false);
+async function initializeAdmin() {
+  await loadAdminSession();
+  await runWithConcurrency(
+    [loadProducts, loadOrders, loadInventory, loadSuppliers, loadRenewals, loadPaymentMethods, loadTemplates, loadSiteSettings, loadAuditEvents],
+    2
+  );
+  setAdminView(getInitialAdminView(), false);
+}
+
+initializeAdmin();

@@ -73,7 +73,48 @@ El token real vive en `.env`, que no se versiona. Ese valor debe coincidir exact
 
 `PROOF_UPLOAD_MAX_MB` controla el tamano maximo del archivo de comprobante. La app acepta un solo archivo y limita la cantidad/tamano de campos del formulario para proteger el servidor frente a cargas multipart abusivas.
 
-## Despliegue en Render
+## Despliegue en Cloudflare Workers
+
+La aplicacion se despliega como un Worker con **Assets** para `public/` y un namespace **KV** para sesiones. Google Apps Script y Drive siguen siendo el origen de datos y archivos, por lo que no se migran las hojas existentes.
+
+1. Instala dependencias y crea el namespace KV:
+
+```bash
+npm install
+npx wrangler kv namespace create SESSIONS
+npx wrangler kv namespace create SESSIONS --preview
+```
+
+2. Copia el `id` que devuelve el primer comando en `wrangler.toml`, dentro de `[[kv_namespaces]]`. Para desarrollo local, agrega tambien el `preview_id` que devuelve el segundo comando.
+
+3. Configura secretos de produccion (no los agregues a `wrangler.toml`):
+
+```bash
+npx wrangler secret put APPS_SCRIPT_CATALOG_URL
+npx wrangler secret put APPS_SCRIPT_ADMIN_TOKEN
+npx wrangler secret put APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID
+npx wrangler secret put ADMIN_USER
+npx wrangler secret put ADMIN_PASSWORD
+npx wrangler secret put SESSION_SECRET
+```
+
+4. En `wrangler.toml`, agrega las variables no sensibles bajo `[vars]`:
+
+```toml
+[vars]
+NODE_ENV = "production"
+CATALOG_STORAGE = "apps-script"
+APPS_SCRIPT_TIMEOUT_MS = "30000"
+PUBLIC_API_CACHE_TTL_MS = "30000"
+PROOF_UPLOAD_MAX_MB = "8"
+SESSION_MAX_AGE_HOURS = "24"
+```
+
+5. Prueba localmente con `copy .dev.vars.example .dev.vars`, completa los valores y ejecuta `npm run dev:worker`. Despliega con `npm run deploy:worker`.
+
+Los Assets se publican desde `public/`; las rutas `/api/*` entran a Express. Las sesiones se almacenan en KV con expiracion igual a `SESSION_MAX_AGE_HOURS`, por lo que el inicio de sesion funciona entre instancias y ubicaciones de Workers.
+
+## Despliegue en Render (heredado)
 
 Render ejecuta este proyecto como un servicio web Node/Express normal. Usa:
 
@@ -333,6 +374,8 @@ npm start
 
 ## Troubleshooting Apps Script
 
+- La version actual de `scripts/google-apps-script-catalogo.gs` cachea los listados durante 30 segundos y elimina ese cache al guardar desde la app. Si editas una hoja directamente en Google Sheets, espera hasta 30 segundos para ver el cambio publicado.
+- Para aplicar mejoras al script, reemplaza el codigo completo en `Extensiones > Apps Script` y crea una **nueva version** del Web App desde `Implementar > Administrar implementaciones`; guardar el archivo no actualiza la URL `/exec` que usa Cloudflare.
 - Si el admin muestra `Accion no soportada`, el Web App publicado no tiene la ultima version de `scripts/google-apps-script-catalogo.gs`.
 - Si un combo rechaza una cuenta compatible, vuelve a desplegar Apps Script con la version actual. La funcion clave es `inventoryMatchesAssignment_`.
 - Si no se guardan comprobantes, revisa que `PROOF_DRIVE_FOLDER_ID` en Apps Script y `APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID` en `.env` apunten a la carpeta correcta.
