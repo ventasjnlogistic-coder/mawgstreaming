@@ -272,8 +272,71 @@ app.use(
   })
 );
 
+const signedAuthCookieName = "streamhub.auth";
+
+function getCookieValue(req, name) {
+  const prefix = `${name}=`;
+  return String(req.headers.cookie || "")
+    .split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(prefix))
+    ?.slice(prefix.length);
+}
+
+function createSignedAuthToken(user) {
+  const payload = {
+    u: String(user?.usuario || ""),
+    n: String(user?.nombre || ""),
+    r: String(user?.rol || ""),
+    p: Array.isArray(user?.permisos) ? user.permisos : String(user?.permisos || "").split(",").filter(Boolean),
+    e: Date.now() + sessionMaxAgeMs,
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", sessionSecret).update(encodedPayload).digest("base64url");
+  return `${encodedPayload}.${signature}`;
+}
+
+function readSignedAuthUser(req) {
+  const token = getCookieValue(req, signedAuthCookieName);
+  if (!token) {
+    return null;
+  }
+
+  const [encodedPayload, signature, ...rest] = token.split(".");
+  if (!encodedPayload || !signature || rest.length > 0) {
+    return null;
+  }
+
+  const expectedSignature = crypto.createHmac("sha256", sessionSecret).update(encodedPayload).digest("base64url");
+  if (!safeCompare(signature, expectedSignature)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    if (!payload?.u || !Number.isFinite(Number(payload.e)) || Number(payload.e) <= Date.now()) {
+      return null;
+    }
+    return {
+      usuario: payload.u,
+      nombre: payload.n || payload.u,
+      rol: payload.r || "admin",
+      permisos: Array.isArray(payload.p) ? payload.p : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getAuthenticatedUser(req) {
+  if (req.session?.authenticated && req.session?.adminUser) {
+    return req.session.adminUser;
+  }
+  return readSignedAuthUser(req);
+}
+
 function isAuthenticated(req) {
-  return Boolean(req.session?.authenticated);
+  return Boolean(getAuthenticatedUser(req));
 }
 
 function requireAuth(req, res, next) {
@@ -286,7 +349,7 @@ function requireAuth(req, res, next) {
 }
 
 function getSessionPermissions(req) {
-  const permissions = req.session?.adminUser?.permisos;
+  const permissions = getAuthenticatedUser(req)?.permisos;
 
   if (Array.isArray(permissions)) {
     return permissions;
@@ -419,7 +482,7 @@ function buildAuditEvent(req, { entidad, entidad_id, accion, antes = {}, despues
     accion,
     estado_anterior: antes?.estado || "",
     estado_nuevo: despues?.estado || "",
-    usuario: req.session?.adminUser?.usuario || req.session?.adminUser || adminUser || "admin",
+    usuario: getAuthenticatedUser(req)?.usuario || adminUser || "admin",
     ip: req.ip || req.socket?.remoteAddress || "",
     detalles,
     creado_en: new Date().toISOString(),
@@ -1780,7 +1843,8 @@ app.put("/api/admin/configuracion-sitio/:id", requirePermission("plantillas"), a
 });
 
 app.get("/api/admin/session", (req, res) => {
-  res.json({ authenticated: isAuthenticated(req), user: isAuthenticated(req) ? req.session.adminUser : null });
+  const user = getAuthenticatedUser(req);
+  res.json({ authenticated: Boolean(user), user: user || null });
 });
 
 app.post("/api/admin/login", loginRateLimit, async (req, res) => {
@@ -1804,6 +1868,13 @@ app.post("/api/admin/login", loginRateLimit, async (req, res) => {
     };
     req.session.authenticated = true;
     req.session.adminUser = sessionUser;
+    res.cookie(signedAuthCookieName, createSignedAuthToken(sessionUser), {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isProduction,
+      maxAge: sessionMaxAgeMs,
+      path: "/",
+    });
     res.json({ ok: true, user: sessionUser });
     return;
   }
@@ -1814,6 +1885,7 @@ app.post("/api/admin/login", loginRateLimit, async (req, res) => {
 app.post("/api/admin/logout", requireAuth, (req, res) => {
   req.session.destroy(() => {
     res.clearCookie("streamhub.sid");
+    res.clearCookie(signedAuthCookieName, { path: "/" });
     res.json({ ok: true });
   });
 });
