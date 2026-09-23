@@ -185,6 +185,7 @@ const adminReadCache = new Map();
 const moduleLoadState = new Map();
 const ADMIN_READ_CACHE_TTL_MS = 15 * 1000;
 const ADMIN_READ_STALE_TTL_MS = 2 * 60 * 1000;
+let adminInitialLoadComplete = false;
 
 statusToast.className = "admin-toast";
 statusToast.setAttribute("role", "status");
@@ -454,6 +455,10 @@ function setAdminView(viewName, updateHash = true) {
 
   if (updateHash && window.location.hash !== `#${nextView}`) {
     history.replaceState(null, "", `#${nextView}`);
+  }
+
+  if (adminInitialLoadComplete) {
+    ensureAdminViewModules(nextView);
   }
 }
 
@@ -1694,7 +1699,7 @@ async function loadManagedModule(id, loader, options = {}) {
   return result;
 }
 
-function loadAllAdminModules() {
+function loadDashboardModules() {
   return runWithConcurrency(
     [
       ["productos", loadProducts],
@@ -1703,11 +1708,26 @@ function loadAllAdminModules() {
       ["proveedores", loadSuppliers],
       ["renovaciones", loadRenewals],
       ["pagos", loadPaymentMethods],
-      ["plantillas", loadTemplates],
-      ["configuracion", loadSiteSettings],
-      ["auditoria", loadAuditEvents],
-    ].map(([id, loader]) => () => loadManagedModule(id, loader))
+    ].map(([id, loader]) => () => loadManagedModule(id, loader)),
+    1
   );
+}
+
+function ensureAdminViewModules(viewName) {
+  const moduleByView = {
+    plantillas: ["plantillas"],
+    configuracion: ["configuracion"],
+    auditoria: ["auditoria"],
+  };
+
+  (moduleByView[viewName] || []).forEach((id) => {
+    if (!moduleLoadState.has(id)) {
+      const loader = getAdminModuleLoader(id);
+      if (loader) {
+        loadManagedModule(id, loader);
+      }
+    }
+  });
 }
 
 async function refreshOperationalData() {
@@ -5281,7 +5301,8 @@ document.addEventListener("keydown", (event) => {
 
 async function initializeAdmin() {
   await loadAdminSession();
-  await loadAllAdminModules();
+  await loadDashboardModules();
+  adminInitialLoadComplete = true;
   setAdminView(getInitialAdminView(), false);
 }
 
