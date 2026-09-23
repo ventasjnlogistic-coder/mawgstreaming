@@ -178,8 +178,13 @@ const dirtyState = document.querySelector("#dirtyState");
 const formTitle = document.querySelector("#formTitle");
 const jsonOutput = document.querySelector("#jsonOutput");
 const adminStatus = document.querySelector("#adminStatus");
+const adminLoadStatus = document.querySelector("#adminLoadStatus");
 const statusToast = document.createElement("div");
 let statusToastTimer = null;
+const adminReadCache = new Map();
+const moduleLoadState = new Map();
+const ADMIN_READ_CACHE_TTL_MS = 15 * 1000;
+const ADMIN_READ_STALE_TTL_MS = 2 * 60 * 1000;
 
 statusToast.className = "admin-toast";
 statusToast.setAttribute("role", "status");
@@ -765,31 +770,78 @@ function normalizeSiteSetting(setting = {}) {
 }
 
 async function apiRequest(url, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const isAdminRead = method === "GET" && String(url).startsWith("/api/admin/") && !String(url).includes("/session");
+  const cacheKey = isAdminRead ? String(url) : "";
+  const cached = cacheKey ? adminReadCache.get(cacheKey) : null;
+  const now = Date.now();
+
+  if (cached && cached.freshUntil > now && !options.forceRefresh) {
+    return cached.value;
+  }
+
   const isFormData = options.body instanceof FormData;
-  const response = await fetch(url, {
-    credentials: "same-origin",
-    headers: {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  const attempts = isAdminRead ? 3 : 1;
+  let lastError;
 
-  if (response.status === 401) {
-    window.location.href = "/login.html";
-    throw new Error("Sesion requerida");
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 35_000);
+
+    try {
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: {
+          ...(isFormData ? {} : { "Content-Type": "application/json" }),
+          ...(options.headers || {}),
+        },
+        ...options,
+        signal: controller.signal,
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/login.html";
+        throw new Error("Sesion requerida");
+      }
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        const error = new Error(data?.error || `No se pudo completar la operacion. Estado HTTP ${response.status}.`);
+        error.retryable = isAdminRead && (response.status === 429 || response.status >= 500);
+        throw error;
+      }
+
+      if (response.status === 204) {
+        return null;
+      }
+
+      const data = await response.json();
+      if (cacheKey) {
+        adminReadCache.set(cacheKey, {
+          value: data,
+          freshUntil: now + ADMIN_READ_CACHE_TTL_MS,
+          staleUntil: now + ADMIN_READ_STALE_TTL_MS,
+        });
+      }
+      return data;
+    } catch (error) {
+      lastError = error?.name === "AbortError" ? new Error("Google Apps Script demoro demasiado en responder.") : error;
+      const retryable = isAdminRead && (lastError.retryable || lastError.message === "Google Apps Script demoro demasiado en responder." || /fetch failed/i.test(lastError.message));
+      if (!retryable || attempt === attempts - 1) {
+        break;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
 
-  if (!response.ok) {
-    const data = await response.json().catch(() => null);
-    throw new Error(data?.error || `No se pudo completar la operacion. Estado HTTP ${response.status}.`);
+  if (cached && cached.staleUntil > Date.now()) {
+    setStatus("Apps Script esta lento. Se muestran los ultimos datos disponibles; puedes reintentar el modulo.", true);
+    return cached.value;
   }
 
-  if (response.status === 204) {
-    return null;
-  }
-
-  return response.json();
+  throw lastError || new Error("No se pudo completar la operacion.");
 }
 
 function setStatus(message, isError = false) {
@@ -1597,10 +1649,75 @@ async function runWithConcurrency(tasks, limit = 2) {
   await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
 }
 
+const adminModuleLabels = {
+  productos: "Catalogo",
+  pedidos: "Pedidos",
+  inventario: "Inventario",
+  proveedores: "Proveedores",
+  renovaciones: "Renovaciones",
+  pagos: "Metodos de pago",
+  plantillas: "Plantillas",
+  configuracion: "Configuracion",
+  auditoria: "Auditoria",
+};
+
+function renderModuleLoadState() {
+  if (!adminLoadStatus) {
+    return;
+  }
+
+  const entries = [...moduleLoadState.entries()];
+  adminLoadStatus.hidden = entries.length === 0;
+  adminLoadStatus.innerHTML = entries
+    .map(([id, state]) => {
+      const label = adminModuleLabels[id] || id;
+      if (state.status === "loading") {
+        return `<span class="module-load-item is-loading">${escapeHtml(label)}: cargando...</span>`;
+      }
+      if (state.status === "error") {
+        return `<span class="module-load-item is-error">${escapeHtml(label)} no se cargo. <button type="button" data-retry-module="${escapeHtml(id)}">Reintentar</button></span>`;
+      }
+      return `<span class="module-load-item is-ready">${escapeHtml(label)} listo</span>`;
+    })
+    .join("");
+}
+
+function setModuleLoadState(id, status) {
+  moduleLoadState.set(id, { status });
+  renderModuleLoadState();
+}
+
+async function loadManagedModule(id, loader, options = {}) {
+  setModuleLoadState(id, "loading");
+  const result = await loader(options);
+  setModuleLoadState(id, result === false ? "error" : "ready");
+  return result;
+}
+
+function loadAllAdminModules() {
+  return runWithConcurrency(
+    [
+      ["productos", loadProducts],
+      ["pedidos", loadOrders],
+      ["inventario", loadInventory],
+      ["proveedores", loadSuppliers],
+      ["renovaciones", loadRenewals],
+      ["pagos", loadPaymentMethods],
+      ["plantillas", loadTemplates],
+      ["configuracion", loadSiteSettings],
+      ["auditoria", loadAuditEvents],
+    ].map(([id, loader]) => () => loadManagedModule(id, loader))
+  );
+}
+
 async function refreshOperationalData() {
   // Apps Script procesa mal rafagas grandes de lecturas concurrentes. Dos
   // solicitudes simultaneas mantienen el panel agil sin agotar sus cuotas.
-  await runWithConcurrency([loadProducts, loadOrders, loadInventory, loadSuppliers, loadRenewals, loadPaymentMethods, loadAuditEvents]);
+  await runWithConcurrency(
+    [["productos", loadProducts], ["pedidos", loadOrders], ["inventario", loadInventory], ["proveedores", loadSuppliers], ["renovaciones", loadRenewals], ["pagos", loadPaymentMethods], ["auditoria", loadAuditEvents]].map(
+      ([id, loader]) => () => loadManagedModule(id, loader, { forceRefresh: true })
+    )
+  );
   renderDashboard();
   renderReports();
 }
@@ -2451,11 +2568,11 @@ function selectProduct(id) {
   }
 }
 
-async function loadProducts() {
+async function loadProducts(options = {}) {
   setStatus("Cargando catalogo...");
 
   try {
-    const data = await apiRequest("/api/admin/productos");
+    const data = await apiRequest("/api/admin/productos", options);
     products = sortProductsForDisplay(data.map(normalizeProduct));
     selectedId = products[0]?.id || "";
     renderInventoryProductOptions();
@@ -2473,8 +2590,10 @@ async function loadProducts() {
     renderReports();
     markChanged(false);
     setStatus("Catalogo cargado.");
+    return true;
   } catch (error) {
     setStatus(error.message, true);
+    return false;
   }
 }
 
@@ -2636,7 +2755,7 @@ function selectInventoryItem(id) {
   }
 }
 
-async function loadInventory() {
+async function loadInventory(options = {}) {
   if (!inventoryList) {
     return;
   }
@@ -2644,7 +2763,7 @@ async function loadInventory() {
   inventoryList.innerHTML = '<p class="catalog-message">Cargando inventario...</p>';
 
   try {
-    inventoryItems = (await apiRequest("/api/admin/inventario")).map(normalizeInventoryItem);
+    inventoryItems = (await apiRequest("/api/admin/inventario", options)).map(normalizeInventoryItem);
     inventoryItems.sort((left, right) => String(left.producto_nombre || left.producto_id).localeCompare(String(right.producto_nombre || right.producto_id)));
     selectedInventoryId = selectedInventoryId || inventoryItems[0]?.inventario_id || "";
     renderInventoryProductFilterOptions();
@@ -2655,8 +2774,10 @@ async function loadInventory() {
     renderProviderPurchases();
     renderDashboard();
     renderReports();
+    return true;
   } catch (error) {
     inventoryList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -3103,7 +3224,7 @@ async function saveProviderPurchase(purchase, { forceUpdate = false } = {}) {
   return saved;
 }
 
-async function loadSuppliers() {
+async function loadSuppliers(options = {}) {
   if (!providerList && !providerPurchaseList) {
     return;
   }
@@ -3114,8 +3235,8 @@ async function loadSuppliers() {
 
   try {
     const [providerRows, purchaseRows] = await Promise.all([
-      apiRequest("/api/admin/proveedores"),
-      apiRequest("/api/admin/compras-proveedor"),
+      apiRequest("/api/admin/proveedores", options),
+      apiRequest("/api/admin/compras-proveedor", options),
     ]);
     providers = providerRows.map(normalizeProvider).sort((left, right) => left.nombre.localeCompare(right.nombre));
     providerPurchases = purchaseRows.map(normalizeProviderPurchase);
@@ -3128,10 +3249,12 @@ async function loadSuppliers() {
     fillProviderPurchaseForm(providerPurchases.find((purchase) => purchase.compra_id === selectedProviderPurchaseId) || defaultProviderPurchase);
     renderDashboard();
     renderReports();
+    return true;
   } catch (error) {
     if (providerList) {
       providerList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
     }
+    return false;
   }
 }
 
@@ -3313,7 +3436,7 @@ function renderRenewalEditor() {
   `;
 }
 
-async function loadRenewals() {
+async function loadRenewals(options = {}) {
   if (!renewalList) {
     return;
   }
@@ -3321,22 +3444,25 @@ async function loadRenewals() {
   renewalList.innerHTML = '<p class="catalog-message">Cargando renovaciones...</p>';
 
   try {
-    renewals = (await apiRequest("/api/admin/renovaciones")).map(normalizeRenewal);
+    renewals = (await apiRequest("/api/admin/renovaciones", options)).map(normalizeRenewal);
     renewals.sort((left, right) => String(right.creado_en || "").localeCompare(String(left.creado_en || "")));
     selectedRenewalId = selectedRenewalId || renewals[0]?.renovacion_id || "";
     renderRenewals();
     renderDashboard();
     renderReports();
+    return true;
   } catch (error) {
     renewalList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
-async function loadPaymentMethods() {
+async function loadPaymentMethods(options = {}) {
   try {
-    paymentMethods = (await apiRequest("/api/metodos-pago")).map(normalizePaymentMethod);
+    paymentMethods = (await apiRequest("/api/metodos-pago", options)).map(normalizePaymentMethod);
     renderManualSalePaymentMethodOptions();
     renderRenewalEditor();
+    return true;
   } catch {
     paymentMethods = [
       { id: "yape", nombre: "Yape", estado: "activo" },
@@ -3345,6 +3471,7 @@ async function loadPaymentMethods() {
     ];
     renderManualSalePaymentMethodOptions();
     renderRenewalEditor();
+    return false;
   }
 }
 
@@ -3395,7 +3522,7 @@ function fillTemplateForm(template) {
   renderTemplateList();
 }
 
-async function loadTemplates() {
+async function loadTemplates(options = {}) {
   if (!templateList) {
     return;
   }
@@ -3403,12 +3530,14 @@ async function loadTemplates() {
   templateList.innerHTML = '<p class="catalog-message">Cargando plantillas...</p>';
 
   try {
-    messageTemplates = (await apiRequest("/api/admin/plantillas")).map(normalizeMessageTemplate);
+    messageTemplates = (await apiRequest("/api/admin/plantillas", options)).map(normalizeMessageTemplate);
     selectedTemplateId = selectedTemplateId || messageTemplates[0]?.id || "";
     renderTemplateList();
     fillTemplateForm(messageTemplates.find((template) => template.id === selectedTemplateId) || defaultMessageTemplate);
+    return true;
   } catch (error) {
     templateList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -3486,7 +3615,7 @@ function fillSiteSettingForm(setting) {
   renderSiteSettingList();
 }
 
-async function loadSiteSettings() {
+async function loadSiteSettings(options = {}) {
   if (!siteSettingList) {
     return;
   }
@@ -3494,12 +3623,14 @@ async function loadSiteSettings() {
   siteSettingList.innerHTML = '<p class="catalog-message">Cargando configuracion...</p>';
 
   try {
-    siteSettings = (await apiRequest("/api/admin/configuracion-sitio")).map(normalizeSiteSetting);
+    siteSettings = (await apiRequest("/api/admin/configuracion-sitio", options)).map(normalizeSiteSetting);
     selectedSiteSettingId = selectedSiteSettingId || siteSettings[0]?.id || "";
     renderSiteSettingList();
     fillSiteSettingForm(siteSettings.find((setting) => setting.id === selectedSiteSettingId) || defaultSiteSetting);
+    return true;
   } catch (error) {
     siteSettingList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -3572,7 +3703,7 @@ function renderAuditEvents() {
     .join("");
 }
 
-async function loadAuditEvents() {
+async function loadAuditEvents(options = {}) {
   if (!auditList) {
     return;
   }
@@ -3580,10 +3711,12 @@ async function loadAuditEvents() {
   auditList.innerHTML = '<p class="catalog-message">Cargando auditoria...</p>';
 
   try {
-    auditEvents = await apiRequest("/api/admin/auditoria?limit=100");
+    auditEvents = await apiRequest("/api/admin/auditoria?limit=100", options);
     renderAuditEvents();
+    return true;
   } catch (error) {
     auditList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -4005,7 +4138,7 @@ function renderOrders() {
     .join("");
 }
 
-async function loadOrders() {
+async function loadOrders(options = {}) {
   if (!orderList) {
     return;
   }
@@ -4013,13 +4146,15 @@ async function loadOrders() {
   orderList.innerHTML = '<p class="catalog-message">Cargando pedidos...</p>';
 
   try {
-    orders = (await apiRequest("/api/admin/pedidos")).map(normalizeInventoryOrder);
+    orders = (await apiRequest("/api/admin/pedidos", options)).map(normalizeInventoryOrder);
     orders.sort((left, right) => String(right.creado_en || "").localeCompare(String(left.creado_en || "")));
     renderOrders();
     renderDashboard();
     renderReports();
+    return true;
   } catch (error) {
     orderList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -4245,16 +4380,39 @@ function closeDeleteModal() {
   document.body.classList.remove("modal-open");
 }
 
-document.querySelector("#loadCatalogButton")?.addEventListener("click", loadProducts);
+function getAdminModuleLoader(id) {
+  return {
+    productos: loadProducts,
+    pedidos: loadOrders,
+    inventario: loadInventory,
+    proveedores: loadSuppliers,
+    renovaciones: loadRenewals,
+    pagos: loadPaymentMethods,
+    plantillas: loadTemplates,
+    configuracion: loadSiteSettings,
+    auditoria: loadAuditEvents,
+  }[id];
+}
+
+adminLoadStatus?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-retry-module]");
+  const id = button?.dataset.retryModule;
+  const loader = id ? getAdminModuleLoader(id) : null;
+  if (loader) {
+    loadManagedModule(id, loader, { forceRefresh: true });
+  }
+});
+
+document.querySelector("#loadCatalogButton")?.addEventListener("click", () => loadManagedModule("productos", loadProducts, { forceRefresh: true }));
 loadDashboardButton?.addEventListener("click", refreshDashboardData);
 loadReportsButton?.addEventListener("click", refreshOperationalData);
-loadOrdersButton?.addEventListener("click", loadOrders);
-loadInventoryButton?.addEventListener("click", loadInventory);
-loadSuppliersButton?.addEventListener("click", loadSuppliers);
-loadRenewalsButton?.addEventListener("click", loadRenewals);
-loadTemplatesButton?.addEventListener("click", loadTemplates);
-loadSiteSettingsButton?.addEventListener("click", loadSiteSettings);
-loadAuditButton?.addEventListener("click", loadAuditEvents);
+loadOrdersButton?.addEventListener("click", () => loadManagedModule("pedidos", loadOrders, { forceRefresh: true }));
+loadInventoryButton?.addEventListener("click", () => loadManagedModule("inventario", loadInventory, { forceRefresh: true }));
+loadSuppliersButton?.addEventListener("click", () => loadManagedModule("proveedores", loadSuppliers, { forceRefresh: true }));
+loadRenewalsButton?.addEventListener("click", () => loadManagedModule("renovaciones", loadRenewals, { forceRefresh: true }));
+loadTemplatesButton?.addEventListener("click", () => loadManagedModule("plantillas", loadTemplates, { forceRefresh: true }));
+loadSiteSettingsButton?.addEventListener("click", () => loadManagedModule("configuracion", loadSiteSettings, { forceRefresh: true }));
+loadAuditButton?.addEventListener("click", () => loadManagedModule("auditoria", loadAuditEvents, { forceRefresh: true }));
 
 manualSaleProductSelect?.addEventListener("change", () => {
   const selectedOption = manualSaleProductSelect.selectedOptions?.[0];
@@ -5123,10 +5281,7 @@ document.addEventListener("keydown", (event) => {
 
 async function initializeAdmin() {
   await loadAdminSession();
-  await runWithConcurrency(
-    [loadProducts, loadOrders, loadInventory, loadSuppliers, loadRenewals, loadPaymentMethods, loadTemplates, loadSiteSettings, loadAuditEvents],
-    2
-  );
+  await loadAllAdminModules();
   setAdminView(getInitialAdminView(), false);
 }
 
