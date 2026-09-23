@@ -432,3 +432,4 @@ npm run test:api
 En PowerShell de Windows, si `npm` esta bloqueado por la politica de ejecucion, usa `npm.cmd test`, `npm.cmd run test:web` o `npm.cmd run test:api`.
 
 Sin instalar dependencias adicionales, `npm run test:web` valida que la web servida desde `public/` cargue HTML, CSS, JS, assets, admin protegido e imagenes de catalogo.
+<!-- Activar primer build de Cloudflare -->
