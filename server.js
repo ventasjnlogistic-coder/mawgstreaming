@@ -1834,6 +1834,38 @@ app.get("/api/admin/productos", requireAuth, async (_req, res) => {
   }
 });
 
+app.get("/api/admin/dashboard-snapshot", requireAuth, async (_req, res) => {
+  try {
+    if (typeof inventoryStore.getDashboardSnapshot === "function") {
+      const snapshot = await inventoryStore.getDashboardSnapshot();
+      res.json({
+        products: snapshot.products.map(normalizeProduct),
+        orders: snapshot.orders.map(normalizeOrder),
+        inventory: snapshot.inventory.map(normalizeInventoryItem),
+        renewals: snapshot.renewals.map(normalizeRenewal),
+        providers: snapshot.providers.map(normalizeProvider),
+        provider_purchases: snapshot.provider_purchases.map(normalizeProviderPurchase),
+        payment_methods: snapshot.payment_methods,
+      });
+      return;
+    }
+
+    const [products, orders, inventory, renewals, providers, providerPurchases, paymentMethods] = await Promise.all([
+      readProducts(),
+      orderStore.listOrders(),
+      readInventory(),
+      readRenewals(),
+      readProviders(),
+      readProviderPurchases(),
+      paymentMethodStore.listMethods(),
+    ]);
+    res.json({ products, orders, inventory, renewals, providers, provider_purchases: providerPurchases, payment_methods: paymentMethods });
+  } catch (error) {
+    logUnexpectedError(error);
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo cargar el resumen operativo." });
+  }
+});
+
 app.post("/api/admin/productos", requirePermission("productos"), async (req, res) => {
   try {
     const product = normalizeProduct(req.body);

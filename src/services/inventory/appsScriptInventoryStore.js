@@ -97,6 +97,21 @@ class AppsScriptInventoryStore {
     return Array.isArray(data.inventory) ? data.inventory : [];
   }
 
+  async getDashboardSnapshot() {
+    const data = await this.requestReadWithRetry(this.withToken({ action: "dashboard.snapshot" }));
+    const dashboard = data.dashboard || {};
+
+    return {
+      products: Array.isArray(dashboard.products) ? dashboard.products : [],
+      orders: Array.isArray(dashboard.orders) ? dashboard.orders : [],
+      inventory: Array.isArray(dashboard.inventory) ? dashboard.inventory : [],
+      renewals: Array.isArray(dashboard.renewals) ? dashboard.renewals : [],
+      providers: Array.isArray(dashboard.providers) ? dashboard.providers : [],
+      provider_purchases: Array.isArray(dashboard.provider_purchases) ? dashboard.provider_purchases : [],
+      payment_methods: Array.isArray(dashboard.payment_methods) ? dashboard.payment_methods : [],
+    };
+  }
+
   async createItem(item) {
     const data = await this.request(this.withToken({ action: "inventory.create", item }));
     return data.item || item;

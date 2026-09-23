@@ -781,6 +781,10 @@ async function apiRequest(url, options = {}) {
   const cached = cacheKey ? adminReadCache.get(cacheKey) : null;
   const now = Date.now();
 
+  if (method !== "GET") {
+    adminReadCache.clear();
+  }
+
   if (cached && cached.freshUntil > now && !options.forceRefresh) {
     return cached.value;
   }
@@ -1692,6 +1696,15 @@ function setModuleLoadState(id, status) {
   renderModuleLoadState();
 }
 
+function primeAdminReadCache(url, value) {
+  const now = Date.now();
+  adminReadCache.set(url, {
+    value,
+    freshUntil: now + ADMIN_READ_CACHE_TTL_MS,
+    staleUntil: now + ADMIN_READ_STALE_TTL_MS,
+  });
+}
+
 async function loadManagedModule(id, loader, options = {}) {
   setModuleLoadState(id, "loading");
   const result = await loader(options);
@@ -1699,18 +1712,46 @@ async function loadManagedModule(id, loader, options = {}) {
   return result;
 }
 
-function loadDashboardModules() {
+function loadDashboardModules({ includePaymentMethods = true } = {}) {
+  const modules = [
+    ["productos", loadProducts],
+    ["pedidos", loadOrders],
+    ["inventario", loadInventory],
+    ["proveedores", loadSuppliers],
+    ["renovaciones", loadRenewals],
+  ];
+
+  if (includePaymentMethods) {
+    modules.push(["pagos", loadPaymentMethods]);
+  }
+
   return runWithConcurrency(
-    [
-      ["productos", loadProducts],
-      ["pedidos", loadOrders],
-      ["inventario", loadInventory],
-      ["proveedores", loadSuppliers],
-      ["renovaciones", loadRenewals],
-      ["pagos", loadPaymentMethods],
-    ].map(([id, loader]) => () => loadManagedModule(id, loader)),
+    modules.map(([id, loader]) => () => loadManagedModule(id, loader)),
     1
   );
+}
+
+async function loadDashboardSnapshot() {
+  ["productos", "pedidos", "inventario", "proveedores", "renovaciones", "pagos"].forEach((id) => setModuleLoadState(id, "loading"));
+
+  try {
+    const snapshot = await apiRequest("/api/admin/dashboard-snapshot");
+    primeAdminReadCache("/api/admin/productos", Array.isArray(snapshot.products) ? snapshot.products : []);
+    primeAdminReadCache("/api/admin/pedidos", Array.isArray(snapshot.orders) ? snapshot.orders : []);
+    primeAdminReadCache("/api/admin/inventario", Array.isArray(snapshot.inventory) ? snapshot.inventory : []);
+    primeAdminReadCache("/api/admin/proveedores", Array.isArray(snapshot.providers) ? snapshot.providers : []);
+    primeAdminReadCache("/api/admin/compras-proveedor", Array.isArray(snapshot.provider_purchases) ? snapshot.provider_purchases : []);
+    primeAdminReadCache("/api/admin/renovaciones", Array.isArray(snapshot.renewals) ? snapshot.renewals : []);
+    paymentMethods = (Array.isArray(snapshot.payment_methods) ? snapshot.payment_methods : []).map(normalizePaymentMethod);
+    renderManualSalePaymentMethodOptions();
+    renderRenewalEditor();
+    setModuleLoadState("pagos", "ready");
+    await loadDashboardModules({ includePaymentMethods: false });
+    return true;
+  } catch (error) {
+    setStatus("El resumen rapido no estuvo disponible; se cargaran los modulos por separado.", true);
+    return loadDashboardModules();
+  }
 }
 
 function ensureAdminViewModules(viewName) {
@@ -3834,7 +3875,9 @@ async function confirmRenewal(form) {
 
   renderRenewals();
   renderInventoryList();
-  await loadOrders();
+  renderOrders();
+  renderDashboard();
+  renderReports();
   setStatus(`Renovacion ${renewalId} confirmada.`);
 
   const confirmationSource = resolveRenewalSource({
@@ -4985,7 +5028,9 @@ renewInventoryButton?.addEventListener("click", async () => {
     renderInventoryList();
     renderProviderPurchases();
     fillInventoryForm(updated);
-    await loadOrders();
+    renderOrders();
+    renderDashboard();
+    renderReports();
     setStatus(`Cuenta ${selectedInventoryId} renovada.`);
   } catch (error) {
     setStatus(error.message, true);
@@ -5301,7 +5346,7 @@ document.addEventListener("keydown", (event) => {
 
 async function initializeAdmin() {
   await loadAdminSession();
-  await loadDashboardModules();
+  await loadDashboardSnapshot();
   adminInitialLoadComplete = true;
   setAdminView(getInitialAdminView(), false);
 }

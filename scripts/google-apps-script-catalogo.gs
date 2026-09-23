@@ -263,7 +263,7 @@ function doPost(e) {
     const action = String(payload.action || "").toLowerCase();
 
     // No se mantienen lecturas obsoletas despues de crear, editar o eliminar.
-    if (action !== "users.auth" && !action.endsWith(".list")) {
+    if (action !== "users.auth" && !action.endsWith(".list") && action !== "dashboard.snapshot") {
       invalidateReadCache_();
     }
 
@@ -288,6 +288,10 @@ function doPost(e) {
 
     if (!isValidToken_(payload.token)) {
       return jsonResponse({ ok: false, error: "Token de administracion invalido." });
+    }
+
+    if (action === "dashboard.snapshot") {
+      return jsonResponse({ ok: true, dashboard: getDashboardSnapshot_() });
     }
 
     if (action === "create") {
@@ -420,6 +424,18 @@ function doPost(e) {
   } catch (error) {
     return jsonResponse({ ok: false, error: error.message });
   }
+}
+
+function getDashboardSnapshot_() {
+  return {
+    products: getCachedRead_("products", listProducts_),
+    orders: getCachedRead_("orders", listOrders_),
+    inventory: getCachedRead_("inventory", listInventory_),
+    renewals: getCachedRead_("renewals", listRenewals_),
+    providers: getCachedRead_("providers", listProviders_),
+    provider_purchases: getCachedRead_("provider_purchases", listProviderPurchases_),
+    payment_methods: getCachedRead_("payment_methods", listPaymentMethods_),
+  };
 }
 
 function parsePayload_(e) {
