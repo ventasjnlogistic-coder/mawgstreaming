@@ -1871,7 +1871,7 @@ app.post("/api/admin/migraciones/d1/importar-sheets", requirePermission("configu
   }
 
   try {
-    const summary = await d1SheetsImportService.importFromSheets();
+    const summary = await d1SheetsImportService.importTableFromSheets(req.body?.table);
     res.json({ ok: true, summary });
   } catch (error) {
     logUnexpectedError(error);

@@ -24,6 +24,17 @@ const TABLES = [
   { table: "message_templates", key: "id", fields: ["id", "nombre", "asunto", "contenido", "estado", "orden"] },
   { table: "site_settings", key: "id", fields: ["id", "nombre", "valor", "tipo", "estado", "orden"] },
 ];
+const SOURCE_BY_TABLE = {
+  products: "products",
+  providers: "providers",
+  provider_purchases: "providerPurchases",
+  inventory: "inventory",
+  orders: "orders",
+  renewals: "renewals",
+  payment_methods: "paymentMethods",
+  message_templates: "messageTemplates",
+  site_settings: "siteSettings",
+};
 
 function chunks(items, size) {
   return Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
@@ -58,30 +69,26 @@ class D1SheetsImportService {
     return validRows.length;
   }
 
-  async importFromSheets() {
+  async importTableFromSheets(table) {
     this.assertReady();
+    const definition = TABLES.find((entry) => entry.table === table);
+    const sourceName = SOURCE_BY_TABLE[table];
+    if (!definition || !sourceName || typeof this.sources[sourceName] !== "function") {
+      const error = new Error("Tabla de migracion no soportada.");
+      error.statusCode = 400;
+      throw error;
+    }
+
     const startedAt = new Date().toISOString();
     const run = await this.db.prepare("INSERT INTO migration_runs (fuente, iniciado_en, estado) VALUES (?, ?, ?)").bind("apps-script", startedAt, "en_proceso").run();
     const runId = run.meta?.last_row_id;
-    const summary = {};
+    const summary = { table };
 
     try {
-      // Las lecturas son secuenciales para no volver a saturar Apps Script.
-      const sourceRows = {
-        products: await this.sources.products(),
-        providers: await this.sources.providers(),
-        provider_purchases: await this.sources.providerPurchases(),
-        inventory: await this.sources.inventory(),
-        orders: await this.sources.orders(),
-        renewals: await this.sources.renewals(),
-        payment_methods: await this.sources.paymentMethods(),
-        message_templates: await this.sources.messageTemplates(),
-        site_settings: await this.sources.siteSettings(),
-      };
-
-      for (const definition of TABLES) {
-        summary[definition.table] = await this.importRows(definition, Array.isArray(sourceRows[definition.table]) ? sourceRows[definition.table] : []);
-      }
+      // Una tabla por solicitud: evita que una migracion larga agote el tiempo
+      // maximo de Apps Script y permite reintentar solamente la que falle.
+      const rows = await this.sources[sourceName]();
+      summary.records = await this.importRows(definition, Array.isArray(rows) ? rows : []);
 
       await this.db.prepare("UPDATE migration_runs SET finalizado_en = ?, estado = ?, resumen_json = ? WHERE id = ?")
         .bind(new Date().toISOString(), "completado", JSON.stringify(summary), runId).run();

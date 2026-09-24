@@ -4514,18 +4514,23 @@ migrateD1Button?.addEventListener("click", async () => {
   }
 
   migrateD1Button.disabled = true;
+  const d1MigrationTables = ["products", "providers", "provider_purchases", "inventory", "orders", "renewals", "payment_methods", "message_templates", "site_settings"];
+  const completed = [];
   if (d1MigrationStatus) d1MigrationStatus.textContent = "Importando datos a D1...";
 
   try {
-    const result = await apiRequest("/api/admin/migraciones/d1/importar-sheets", {
-      method: "POST",
-      body: JSON.stringify({ confirmacion: "IMPORTAR_SHEETS_A_D1" }),
-    });
-    const summary = Object.entries(result.summary || {}).map(([table, count]) => `${table}: ${count}`).join(" | ");
-    if (d1MigrationStatus) d1MigrationStatus.textContent = `Importacion completada. ${summary}`;
+    for (const table of d1MigrationTables) {
+      if (d1MigrationStatus) d1MigrationStatus.textContent = `Importando ${table} (${completed.length + 1}/${d1MigrationTables.length})...`;
+      const result = await apiRequest("/api/admin/migraciones/d1/importar-sheets", {
+        method: "POST",
+        body: JSON.stringify({ confirmacion: "IMPORTAR_SHEETS_A_D1", table }),
+      });
+      completed.push(`${result.summary?.table}: ${result.summary?.records || 0}`);
+    }
+    if (d1MigrationStatus) d1MigrationStatus.textContent = `Importacion completada. ${completed.join(" | ")}`;
     setStatus("Datos copiados a D1. Sheets continua siendo la fuente activa.");
   } catch (error) {
-    if (d1MigrationStatus) d1MigrationStatus.textContent = error.message;
+    if (d1MigrationStatus) d1MigrationStatus.textContent = `Se importaron ${completed.length} tablas. ${error.message}`;
     setStatus(error.message, true);
   } finally {
     migrateD1Button.disabled = false;
