@@ -80,7 +80,9 @@ const auditStore = createAuditStore(runtimeEnv);
 const d1SheetsImportService = new D1SheetsImportService({
   db: globalThis.__MAWG_D1__,
   sources: {
-    products: () => readProducts(),
+    // La importacion no debe ocultar un fallo de Apps Script con el respaldo
+    // JSON local: ese archivo no existe dentro de un Worker.
+    products: () => readProductsForD1Import(),
     providers: () => readProviders(),
     providerPurchases: () => readProviderPurchases(),
     inventory: () => readInventory(),
@@ -679,9 +681,17 @@ async function readProducts() {
     return products.map(normalizeProduct);
   } catch (error) {
     logUnexpectedError(error);
+    if (isWorkerRuntime) {
+      throw error;
+    }
     const products = await localCatalogStore.listProducts();
     return products.map(normalizeProduct);
   }
+}
+
+async function readProductsForD1Import() {
+  const products = await catalogStore.listProducts();
+  return products.map(normalizeProduct);
 }
 
 async function writeProducts(products) {
