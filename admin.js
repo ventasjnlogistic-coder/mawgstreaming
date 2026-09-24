@@ -185,6 +185,7 @@ const adminReadCache = new Map();
 const moduleLoadState = new Map();
 const ADMIN_READ_CACHE_TTL_MS = 15 * 1000;
 const ADMIN_READ_STALE_TTL_MS = 2 * 60 * 1000;
+const ADMIN_LAST_VIEW_STORAGE_KEY = "mawg.admin.lastView";
 let adminInitialLoadComplete = false;
 
 statusToast.className = "admin-toast";
@@ -428,6 +429,14 @@ function getAllowedAdminView(viewName) {
 
 function setAdminView(viewName, updateHash = true) {
   const nextView = getAllowedAdminView(viewName);
+
+  // Solo se guarda el nombre de la pantalla; nunca datos operativos ni
+  // credenciales. Asi el login puede retomar Inventario sin iniciar Dashboard.
+  try {
+    window.sessionStorage.setItem(ADMIN_LAST_VIEW_STORAGE_KEY, nextView);
+  } catch {
+    // El panel sigue funcionando si sessionStorage no esta disponible.
+  }
 
   adminViews.forEach((view) => {
     view.hidden = view.dataset.adminView !== nextView;
@@ -809,7 +818,8 @@ async function apiRequest(url, options = {}) {
       });
 
       if (response.status === 401) {
-        window.location.href = "/login.html";
+        const returnTo = `${window.location.pathname}${window.location.hash}`;
+        window.location.href = `/login.html?next=${encodeURIComponent(returnTo)}`;
         throw new Error("Sesion requerida");
       }
 
