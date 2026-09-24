@@ -1080,6 +1080,20 @@
               <button class="button button-primary" type="submit">Guardar configuracion</button>
             </div>
           </form>
+
+          <section class="admin-panel" aria-labelledby="d1MigrationTitle">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Migracion de datos</p>
+                <h2 id="d1MigrationTitle">Google Sheets a D1</h2>
+              </div>
+            </div>
+            <p class="local-file-note">Copia los datos operativos de Sheets a D1. No modifica Sheets ni mueve comprobantes o imagenes de Google Drive.</p>
+            <div class="form-actions">
+              <button class="button button-secondary" type="button" id="migrateD1Button">Importar datos a D1</button>
+            </div>
+            <p class="copy-status" id="d1MigrationStatus" aria-live="polite"></p>
+          </section>
         </section>
       </section>
 

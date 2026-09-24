@@ -39,6 +39,7 @@ const {
 } = require("./src/services/renewals/validation");
 const FileSessionStore = require("./src/services/sessions/fileSessionStore");
 const KvSessionStore = require("./src/services/sessions/kvSessionStore");
+const D1SheetsImportService = require("./src/services/migrations/d1SheetsImportService");
 const {
   normalizeInventoryItem,
   validateInventoryItem,
@@ -76,6 +77,20 @@ const siteSettingStore = createSiteSettingStore(runtimeEnv);
 const userStore = createUserStore(runtimeEnv);
 const supplierStore = createSupplierStore(runtimeEnv);
 const auditStore = createAuditStore(runtimeEnv);
+const d1SheetsImportService = new D1SheetsImportService({
+  db: globalThis.__MAWG_D1__,
+  sources: {
+    products: () => readProducts(),
+    providers: () => readProviders(),
+    providerPurchases: () => readProviderPurchases(),
+    inventory: () => readInventory(),
+    orders: async () => (await orderStore.listOrders()).map(normalizeOrder),
+    renewals: () => readRenewals(),
+    paymentMethods: () => paymentMethodStore.listMethods(),
+    messageTemplates: () => messageTemplateStore.listTemplates(),
+    siteSettings: () => siteSettingStore.listSettings(),
+  },
+});
 
 if (trustProxy) {
   app.set("trust proxy", 1);
@@ -1845,6 +1860,23 @@ app.put("/api/admin/configuracion-sitio/:id", requirePermission("plantillas"), a
 app.get("/api/admin/session", (req, res) => {
   const user = getAuthenticatedUser(req);
   res.json({ authenticated: Boolean(user), user: user || null });
+});
+
+// No se expone en la interfaz: evita una migracion accidental. Solo un
+// administrador que envie la confirmacion literal puede copiar Sheets a D1.
+app.post("/api/admin/migraciones/d1/importar-sheets", requirePermission("configuracion"), async (req, res) => {
+  if (req.body?.confirmacion !== "IMPORTAR_SHEETS_A_D1") {
+    res.status(400).json({ error: "Confirmacion requerida para importar datos a D1." });
+    return;
+  }
+
+  try {
+    const summary = await d1SheetsImportService.importFromSheets();
+    res.json({ ok: true, summary });
+  } catch (error) {
+    logUnexpectedError(error);
+    res.status(error.statusCode || 500).json({ error: error.message || "No se pudo importar Sheets a D1." });
+  }
 });
 
 app.post("/api/admin/login", loginRateLimit, async (req, res) => {

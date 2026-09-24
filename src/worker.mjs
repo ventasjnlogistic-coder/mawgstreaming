@@ -5,6 +5,9 @@ import { httpServerHandler } from "cloudflare:node";
 // secretos y bindings entregados por Workers, sin incluirlos en el cliente.
 globalThis.__MAWG_ENV__ = env;
 globalThis.__MAWG_SESSION_KV__ = env.SESSIONS;
+// La base queda enlazada desde esta fase, pero Sheets sigue siendo la fuente
+// activa hasta concluir la importacion y sus pruebas de consistencia.
+globalThis.__MAWG_D1__ = env.DB;
 
 const serverModule = await import("../server.js");
 const { app } = serverModule.default || serverModule;

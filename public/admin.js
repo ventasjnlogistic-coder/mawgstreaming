@@ -185,6 +185,7 @@ const adminReadCache = new Map();
 const moduleLoadState = new Map();
 const ADMIN_READ_CACHE_TTL_MS = 15 * 1000;
 const ADMIN_READ_STALE_TTL_MS = 2 * 60 * 1000;
+const ADMIN_LAST_VIEW_STORAGE_KEY = "mawg.admin.lastView";
 let adminInitialLoadComplete = false;
 
 statusToast.className = "admin-toast";
@@ -284,6 +285,8 @@ const siteSettingCount = document.querySelector("#siteSettingCount");
 const siteSettingForm = document.querySelector("#siteSettingForm");
 const siteSettingFormTitle = document.querySelector("#siteSettingFormTitle");
 const loadSiteSettingsButton = document.querySelector("#loadSiteSettingsButton");
+const migrateD1Button = document.querySelector("#migrateD1Button");
+const d1MigrationStatus = document.querySelector("#d1MigrationStatus");
 const adminViews = document.querySelectorAll("[data-admin-view]");
 const adminViewLinks = document.querySelectorAll("[data-admin-target]");
 const adminViewActions = document.querySelectorAll("[data-admin-action]");
@@ -428,6 +431,14 @@ function getAllowedAdminView(viewName) {
 
 function setAdminView(viewName, updateHash = true) {
   const nextView = getAllowedAdminView(viewName);
+
+  // Solo se guarda el nombre de la pantalla; nunca datos operativos ni
+  // credenciales. Asi el login puede retomar Inventario sin iniciar Dashboard.
+  try {
+    window.sessionStorage.setItem(ADMIN_LAST_VIEW_STORAGE_KEY, nextView);
+  } catch {
+    // El panel sigue funcionando si sessionStorage no esta disponible.
+  }
 
   adminViews.forEach((view) => {
     view.hidden = view.dataset.adminView !== nextView;
@@ -809,7 +820,8 @@ async function apiRequest(url, options = {}) {
       });
 
       if (response.status === 401) {
-        window.location.href = "/login.html";
+        const returnTo = `${window.location.pathname}${window.location.hash}`;
+        window.location.href = `/login.html?next=${encodeURIComponent(returnTo)}`;
         throw new Error("Sesion requerida");
       }
 
@@ -1752,6 +1764,27 @@ async function loadDashboardSnapshot() {
     setStatus("El resumen rapido no estuvo disponible; se cargaran los modulos por separado.", true);
     return loadDashboardModules();
   }
+}
+
+async function loadInitialAdminViewData(viewName) {
+  // El dashboard necesita el conjunto completo para calcular sus indicadores.
+  // En cambio, si el usuario actualiza estando en Inventario, pedir ese
+  // conjunto completo vuelve a consultar Pedidos, Renovaciones y Pagos sin
+  // que la pantalla los use. Cargamos solo las dependencias de Inventario.
+  if (viewName !== "inventario") {
+    return loadDashboardSnapshot();
+  }
+
+  const modules = [
+    ["productos", loadProducts],
+    ["proveedores", loadSuppliers],
+    ["inventario", loadInventory],
+  ];
+
+  return runWithConcurrency(
+    modules.map(([id, loader]) => () => loadManagedModule(id, loader)),
+    1
+  );
 }
 
 function ensureAdminViewModules(viewName) {
@@ -4475,6 +4508,29 @@ loadSuppliersButton?.addEventListener("click", () => loadManagedModule("proveedo
 loadRenewalsButton?.addEventListener("click", () => loadManagedModule("renovaciones", loadRenewals, { forceRefresh: true }));
 loadTemplatesButton?.addEventListener("click", () => loadManagedModule("plantillas", loadTemplates, { forceRefresh: true }));
 loadSiteSettingsButton?.addEventListener("click", () => loadManagedModule("configuracion", loadSiteSettings, { forceRefresh: true }));
+migrateD1Button?.addEventListener("click", async () => {
+  if (!window.confirm("Se copiaran los datos actuales de Google Sheets a D1. Sheets y Google Drive no seran modificados. ¿Deseas continuar?")) {
+    return;
+  }
+
+  migrateD1Button.disabled = true;
+  if (d1MigrationStatus) d1MigrationStatus.textContent = "Importando datos a D1...";
+
+  try {
+    const result = await apiRequest("/api/admin/migraciones/d1/importar-sheets", {
+      method: "POST",
+      body: JSON.stringify({ confirmacion: "IMPORTAR_SHEETS_A_D1" }),
+    });
+    const summary = Object.entries(result.summary || {}).map(([table, count]) => `${table}: ${count}`).join(" | ");
+    if (d1MigrationStatus) d1MigrationStatus.textContent = `Importacion completada. ${summary}`;
+    setStatus("Datos copiados a D1. Sheets continua siendo la fuente activa.");
+  } catch (error) {
+    if (d1MigrationStatus) d1MigrationStatus.textContent = error.message;
+    setStatus(error.message, true);
+  } finally {
+    migrateD1Button.disabled = false;
+  }
+});
 loadAuditButton?.addEventListener("click", () => loadManagedModule("auditoria", loadAuditEvents, { forceRefresh: true }));
 
 manualSaleProductSelect?.addEventListener("change", () => {
@@ -5346,7 +5402,7 @@ document.addEventListener("keydown", (event) => {
 
 async function initializeAdmin() {
   await loadAdminSession();
-  await loadDashboardSnapshot();
+  await loadInitialAdminViewData(getInitialAdminView());
   adminInitialLoadComplete = true;
   setAdminView(getInitialAdminView(), false);
 }
