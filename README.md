@@ -104,6 +104,8 @@ npx wrangler secret put SESSION_SECRET
 [vars]
 NODE_ENV = "production"
 CATALOG_STORAGE = "apps-script"
+# Mantener vacio durante la migracion. Solo despues de validar D1:
+# OPERATIONS_STORAGE = "d1"
 APPS_SCRIPT_TIMEOUT_MS = "30000"
 PUBLIC_API_CACHE_TTL_MS = "30000"
 PROOF_UPLOAD_MAX_MB = "8"
@@ -432,4 +434,3 @@ npm run test:api
 En PowerShell de Windows, si `npm` esta bloqueado por la politica de ejecucion, usa `npm.cmd test`, `npm.cmd run test:web` o `npm.cmd run test:api`.
 
 Sin instalar dependencias adicionales, `npm run test:web` valida que la web servida desde `public/` cargue HTML, CSS, JS, assets, admin protegido e imagenes de catalogo.
-<!-- Activar primer build de Cloudflare -->

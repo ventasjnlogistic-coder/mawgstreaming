@@ -1,5 +1,6 @@
 const JsonCatalogStore = require("./jsonCatalogStore");
 const AppsScriptCatalogStore = require("./appsScriptCatalogStore");
+const { enabled: d1Enabled, D1CatalogStore } = require("../d1/d1OperationalStores");
 
 function hasAppsScriptConfig(env) {
   return Boolean(String(env.APPS_SCRIPT_CATALOG_URL || "").trim() && String(env.APPS_SCRIPT_ADMIN_TOKEN || "").trim());
@@ -14,6 +15,7 @@ function hasSheetsConfig(env) {
 }
 
 function createCatalogStore(env = process.env) {
+  if (d1Enabled(env)) return new D1CatalogStore(env.DB);
   if (env.CATALOG_STORAGE === "apps-script") {
     if (!hasAppsScriptConfig(env)) {
       console.warn(

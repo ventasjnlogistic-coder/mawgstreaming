@@ -1,11 +1,13 @@
 const JsonInventoryStore = require("./jsonInventoryStore");
 const AppsScriptInventoryStore = require("./appsScriptInventoryStore");
+const { enabled: d1Enabled, D1InventoryStore } = require("../d1/d1OperationalStores");
 
 function hasAppsScriptConfig(env) {
   return Boolean(String(env.APPS_SCRIPT_CATALOG_URL || "").trim() && String(env.APPS_SCRIPT_ADMIN_TOKEN || "").trim());
 }
 
 function createInventoryStore(env = process.env) {
+  if (d1Enabled(env)) return new D1InventoryStore(env.DB);
   if (env.CATALOG_STORAGE === "apps-script") {
     if (!hasAppsScriptConfig(env)) {
       console.warn(
