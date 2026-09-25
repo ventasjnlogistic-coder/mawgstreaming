@@ -1160,6 +1160,23 @@ function getActiveMessageTemplate(templateId) {
   ) || null;
 }
 
+// Las alertas se pueden enviar desde Inventario sin haber abierto la vista
+// Plantillas. Cargamos solamente ese recurso antes de construir el mensaje,
+// aprovechando la cache de lecturas para no recargar el panel operativo.
+async function ensureAlertTemplatesLoaded() {
+  if (messageTemplates.length > 0) {
+    return true;
+  }
+
+  try {
+    messageTemplates = (await apiRequest("/api/admin/plantillas")).map(normalizeMessageTemplate);
+    return messageTemplates.length > 0;
+  } catch (error) {
+    setStatus("No se pudieron cargar las plantillas para la alerta. Intenta nuevamente.", true);
+    return false;
+  }
+}
+
 function buildWhatsAppUrl(contact, message) {
   const phone = normalizePhone(contact);
 
@@ -1687,18 +1704,15 @@ function renderModuleLoadState() {
     return;
   }
 
-  const entries = [...moduleLoadState.entries()];
+  // La carga de datos ocurre en segundo plano. Solo ocupamos este espacio si
+  // una consulta fallo; mostrar cada tabla como "cargando" distrae y no ayuda
+  // al usuario a operar el panel.
+  const entries = [...moduleLoadState.entries()].filter(([, state]) => state.status === "error");
   adminLoadStatus.hidden = entries.length === 0;
   adminLoadStatus.innerHTML = entries
     .map(([id, state]) => {
       const label = adminModuleLabels[id] || id;
-      if (state.status === "loading") {
-        return `<span class="module-load-item is-loading">${escapeHtml(label)}: cargando...</span>`;
-      }
-      if (state.status === "error") {
-        return `<span class="module-load-item is-error">${escapeHtml(label)} no se cargo. <button type="button" data-retry-module="${escapeHtml(id)}">Reintentar</button></span>`;
-      }
-      return `<span class="module-load-item is-ready">${escapeHtml(label)} listo</span>`;
+      return `<span class="module-load-item is-error">${escapeHtml(label)} no se cargo. <button type="button" data-retry-module="${escapeHtml(id)}">Reintentar</button></span>`;
     })
     .join("");
 }
@@ -4789,6 +4803,10 @@ renewalDueList?.addEventListener("click", async (event) => {
       return;
     }
 
+    if (!(await ensureAlertTemplatesLoaded())) {
+      return;
+    }
+
     const renewalSource = resolveRenewalSource(item);
     const href = buildWhatsAppUrl(renewalSource.cliente_contacto, buildRenewalMessage(renewalSource));
 
@@ -5098,9 +5116,13 @@ renewInventoryButton?.addEventListener("click", async () => {
   }
 });
 
-notifyRenewalButton?.addEventListener("click", () => {
+notifyRenewalButton?.addEventListener("click", async () => {
   if (!selectedInventoryId) {
     setStatus("Selecciona una cuenta para avisar vencimiento.", true);
+    return;
+  }
+
+  if (!(await ensureAlertTemplatesLoaded())) {
     return;
   }
 
