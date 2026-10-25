@@ -5413,6 +5413,21 @@ logoutButton?.addEventListener("click", async () => {
   }
 });
 
+const adminMenuButton = document.querySelector(".menu-toggle");
+const adminNavLinks = document.querySelector(".admin-nav");
+
+adminMenuButton?.addEventListener("click", () => {
+  const isOpen = adminNavLinks?.classList.toggle("is-open") ?? false;
+  adminMenuButton.setAttribute("aria-expanded", String(isOpen));
+});
+
+adminNavLinks?.addEventListener("click", (event) => {
+  if (event.target instanceof HTMLAnchorElement) {
+    adminNavLinks.classList.remove("is-open");
+    adminMenuButton?.setAttribute("aria-expanded", "false");
+  }
+});
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && deleteModal?.classList.contains("is-open")) {
     closeDeleteModal();
