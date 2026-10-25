@@ -122,20 +122,101 @@ const sessionStore =
         kv: globalThis.__MAWG_SESSION_KV__,
         ttlMs: sessionMaxAgeMs,
       })
+    : isWorkerRuntime
+    ? undefined
     : isProduction || runtimeEnv.SESSION_STORE === "file"
     ? new FileSessionStore({
         directory: runtimeEnv.SESSION_FILE_DIR || defaultSessionFileDir,
         ttlMs: sessionMaxAgeMs,
       })
     : undefined;
+
+if (isWorkerRuntime && !globalThis.__MAWG_SESSION_KV__) {
+  // En Workers no se usa el sistema de archivos: sin el binding KV las sesiones
+  // quedarian solo en memoria y se perderian al reciclar la instancia.
+  console.error(
+    "SESSIONS KV no esta enlazado. Configura el binding KV 'SESSIONS' en wrangler.toml para que el login del admin persista."
+  );
+}
 const configuredProofUploadMaxMb = Number(runtimeEnv.PROOF_UPLOAD_MAX_MB);
 const proofUploadMaxMb = Number.isFinite(configuredProofUploadMaxMb) && configuredProofUploadMaxMb > 0 ? configuredProofUploadMaxMb : 8;
 const proofUploadMaxBytes = Math.max(1, proofUploadMaxMb) * 1024 * 1024;
 const proofUploadFieldValueMaxBytes = 16 * 1024;
 const configuredPublicApiCacheTtlMs = Number(runtimeEnv.PUBLIC_API_CACHE_TTL_MS);
 const publicApiCacheTtlMs =
-  Number.isFinite(configuredPublicApiCacheTtlMs) && configuredPublicApiCacheTtlMs >= 0 ? configuredPublicApiCacheTtlMs : 30 * 1000;
+  Number.isFinite(configuredPublicApiCacheTtlMs) && configuredPublicApiCacheTtlMs >= 0 ? configuredPublicApiCacheTtlMs : 120 * 1000;
 const publicApiCache = new Map();
+// Las lecturas del admin ya tienen cache corto en el navegador (15s). Este
+// cache del worker solo absorbe rafagas de peticiones duplicadas del panel.
+const ADMIN_API_CACHE_TTL_MS = 15 * 1000;
+const PUBLIC_CACHE_ALIASES = {
+  "products-with-stock": ["admin-products"],
+};
+// Si Apps Script falla, se puede servir la ultima copia buena del catalogo
+// durante este margen extra antes de mostrar un error al cliente.
+const PUBLIC_API_STALE_GRACE_MS = 60 * 60 * 1000;
+// Cache L2 en KV: sobrevive al reciclado de instancias del Worker y comparte el
+// catalogo entre las distintas ubicaciones del borde. Reutiliza el namespace de
+// sesiones con un prefijo propio. KV tiene consistencia eventual (~60s), por eso
+// la invalidacion se apoya tambien en el L1 en memoria y en el TTL corto.
+const publicCacheKv = globalThis.__MAWG_SESSION_KV__ || null;
+const PUBLIC_CACHE_KV_PREFIX = "public-api-cache:";
+const PUBLIC_CACHE_KV_MIN_TTL_SECONDS = 60;
+
+function buildPublicJsonPayloadFromJson(json) {
+  return {
+    json,
+    gzip: zlib.gzipSync(json, { level: zlib.constants.Z_BEST_SPEED }),
+    etag: `"json-${crypto.createHash("sha1").update(json).digest("hex")}"`,
+  };
+}
+
+function buildPublicJsonPayload(value) {
+  return buildPublicJsonPayloadFromJson(JSON.stringify(value));
+}
+
+async function readPublicApiCacheFromKv(key) {
+  if (!publicCacheKv) {
+    return null;
+  }
+
+  try {
+    const raw = await publicCacheKv.get(PUBLIC_CACHE_KV_PREFIX + key, "text");
+    return typeof raw === "string" && raw.length > 0 ? raw : null;
+  } catch (error) {
+    logUnexpectedError(error);
+    return null;
+  }
+}
+
+async function writePublicApiCacheToKv(key, json) {
+  if (!publicCacheKv) {
+    return;
+  }
+
+  try {
+    const ttlSeconds = Math.max(PUBLIC_CACHE_KV_MIN_TTL_SECONDS, Math.ceil(publicApiCacheTtlMs / 1000));
+    await publicCacheKv.put(PUBLIC_CACHE_KV_PREFIX + key, json, { expirationTtl: ttlSeconds });
+  } catch (error) {
+    logUnexpectedError(error);
+  }
+}
+
+async function deletePublicApiCacheFromKv(keys) {
+  if (!publicCacheKv) {
+    return;
+  }
+
+  await Promise.all(
+    keys.map(async (key) => {
+      try {
+        await publicCacheKv.delete(PUBLIC_CACHE_KV_PREFIX + key);
+      } catch (error) {
+        logUnexpectedError(error);
+      }
+    })
+  );
+}
 
 function setSecurityHeaders(_req, res, next) {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -418,13 +499,7 @@ function logUnexpectedError(error) {
 
 async function getCachedPublicPayload(key, loader) {
   if (publicApiCacheTtlMs === 0) {
-    const value = await loader();
-    const json = JSON.stringify(value);
-    return {
-      json,
-      gzip: zlib.gzipSync(json, { level: zlib.constants.Z_BEST_SPEED }),
-      etag: `"json-${crypto.createHash("sha1").update(json).digest("hex")}"`,
-    };
+    return buildPublicJsonPayload(await loader());
   }
 
   const now = Date.now();
@@ -434,28 +509,79 @@ async function getCachedPublicPayload(key, loader) {
     return cached.payload;
   }
 
-  const value = await loader();
-  const json = JSON.stringify(value);
-  const payload = {
-    json,
-    gzip: zlib.gzipSync(json, { level: zlib.constants.Z_BEST_SPEED }),
-    etag: `"json-${crypto.createHash("sha1").update(json).digest("hex")}"`,
-  };
+  // L2 (KV): si el L1 de esta instancia expiro, se intenta recuperar la copia
+  // compartida antes de volver a consultar Apps Script.
+  const cachedJson = await readPublicApiCacheFromKv(key);
+  if (cachedJson) {
+    const payload = buildPublicJsonPayloadFromJson(cachedJson);
+    publicApiCache.set(key, {
+      payload,
+      expiresAt: now + publicApiCacheTtlMs,
+    });
+    return payload;
+  }
 
-  publicApiCache.set(key, {
-    payload,
-    expiresAt: now + publicApiCacheTtlMs,
-  });
-  return payload;
+  try {
+    const json = JSON.stringify(await loader());
+    const payload = buildPublicJsonPayloadFromJson(json);
+    publicApiCache.set(key, {
+      payload,
+      expiresAt: now + publicApiCacheTtlMs,
+    });
+    await writePublicApiCacheToKv(key, json);
+    return payload;
+  } catch (error) {
+    // Apps Script caido o lento: se sirve la ultima copia buena en lugar de
+    // dejar al cliente sin catalogo, siempre dentro del margen de gracia.
+    if (cached && cached.payload && now - cached.expiresAt <= PUBLIC_API_STALE_GRACE_MS) {
+      logUnexpectedError(error);
+      return cached.payload;
+    }
+
+    throw error;
+  }
 }
 
-function clearPublicApiCache(...keys) {
+async function clearPublicApiCache(...keys) {
   if (keys.length === 0) {
+    const known = new Set(publicApiCache.keys());
+    Object.values(PUBLIC_CACHE_ALIASES).forEach((aliases) => aliases.forEach((alias) => known.add(alias)));
     publicApiCache.clear();
+    await deletePublicApiCacheFromKv([...known]);
     return;
   }
 
-  keys.forEach((key) => publicApiCache.delete(key));
+  const targets = new Set();
+  keys.forEach((key) => {
+    publicApiCache.delete(key);
+    targets.add(key);
+    (PUBLIC_CACHE_ALIASES[key] || []).forEach((alias) => {
+      publicApiCache.delete(alias);
+      targets.add(alias);
+    });
+  });
+
+  await deletePublicApiCacheFromKv([...targets]);
+}
+
+async function getCachedAdminProducts() {
+  if (publicApiCacheTtlMs === 0) {
+    return readProducts();
+  }
+
+  const now = Date.now();
+  const cached = publicApiCache.get("admin-products");
+
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const value = await readProducts();
+  publicApiCache.set("admin-products", {
+    value,
+    expiresAt: now + ADMIN_API_CACHE_TTL_MS,
+  });
+  return value;
 }
 
 function setPublicApiCacheHeader(res) {
@@ -661,6 +787,50 @@ function proofFileToPayload(file) {
   };
 }
 
+// Cuando la operacion vive en D1, los stores no suben archivos: se pide a Apps
+// Script (accion proof.upload) que aloje el comprobante en Drive y devuelva la
+// referencia. Con Apps Script activo esta subida la hace submitProof, por eso
+// esta funcion solo se usa en la ruta alternativa.
+async function uploadProofFileToAppsScript(proofFile) {
+  if (!proofFile) {
+    return null;
+  }
+
+  const endpointUrl = String(runtimeEnv.APPS_SCRIPT_CATALOG_URL || "").trim();
+  const adminToken = String(runtimeEnv.APPS_SCRIPT_ADMIN_TOKEN || "").trim();
+
+  if (!endpointUrl || !adminToken) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(runtimeEnv.APPS_SCRIPT_TIMEOUT_MS || 15000));
+
+  try {
+    const response = await fetch(endpointUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "proof.upload",
+        token: adminToken,
+        proof: proofFile,
+        proof_drive_folder_id: String(runtimeEnv.APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID || "").trim(),
+      }),
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || data.ok === false || !data.file) {
+      throw new Error(data.error || "No se pudo guardar el comprobante en Drive.");
+    }
+
+    return data.file;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function maskValue(value) {
   const text = String(value || "").trim();
 
@@ -774,15 +944,20 @@ async function readInventory() {
 }
 
 async function readProductsWithStock() {
-  const products = await readProducts();
-  const inventory = await readInventory().catch((error) => {
-    logUnexpectedError(error);
-    return [];
-  });
+  // Catalogo e inventario viven en hojas distintas: se piden en paralelo para
+  // no sumar dos viajes completos a Apps Script en la carga de la tienda.
+  const [products, inventory] = await Promise.all([
+    readProducts(),
+    readInventory().catch((error) => {
+      logUnexpectedError(error);
+      return [];
+    }),
+  ]);
+  const countForComponent = createStockCounter(inventory);
 
   return products
     .map((product) => {
-    const stock = getProductStock(product, products, inventory);
+    const stock = getProductStock(product, products, countForComponent);
     const venderSinStock = isSellEnabled(product.vender);
     const available = product.estado === "disponible" && (stock > 0 || venderSinStock);
 
@@ -804,14 +979,14 @@ function isSellEnabled(value) {
   return String(value || "").trim().toLowerCase() === "si";
 }
 
-function getProductStock(product, products, inventory) {
+function getProductStock(product, products, countForComponent) {
   const components = getProductComponents(product, products);
 
   if (components.length === 0) {
     return 0;
   }
 
-  return Math.min(...components.map((component) => countAvailableInventoryForComponent(inventory, component)));
+  return Math.min(...components.map((component) => countForComponent(component)));
 }
 
 function getProductComponents(product, products) {
@@ -842,8 +1017,70 @@ function getProductComponents(product, products) {
   return explicit;
 }
 
-function countAvailableInventoryForComponent(inventory, component) {
-  return inventory.filter((item) => item.estado === "disponible" && inventoryMatchesComponent(item, component, {})).length;
+// Prepara las cuentas disponibles una sola vez (estado + slug) y memoiza el
+// conteo por componente. Antes se recorria todo el inventario con slugify()
+// por cada componente de cada producto; ahora cada componente se calcula una vez.
+function createStockCounter(inventory) {
+  let emptyProductCount = 0;
+  const availableItems = [];
+
+  inventory.forEach((item) => {
+    if (item.estado !== "disponible") {
+      return;
+    }
+
+    const productIdSlug = slugify(item.producto_id);
+    const productNameSlug = slugify(item.producto_nombre);
+
+    if (!productIdSlug && !productNameSlug) {
+      // Una cuenta sin producto cargado es compatible con cualquier componente.
+      emptyProductCount += 1;
+      return;
+    }
+
+    availableItems.push({ productIdSlug, productNameSlug });
+  });
+
+  const memo = new Map();
+
+  return function countForComponent(component) {
+    const componentIdSlug = slugify(component.producto_id);
+    const componentNameSlug = slugify(component.componente_nombre);
+
+    if (!componentIdSlug && !componentNameSlug) {
+      return emptyProductCount;
+    }
+
+    const cacheKey = `${componentIdSlug}\u0000${componentNameSlug}`;
+
+    if (memo.has(cacheKey)) {
+      return memo.get(cacheKey);
+    }
+
+    const targets = [componentIdSlug, componentNameSlug].filter(Boolean);
+    let count = emptyProductCount;
+
+    availableItems.forEach((item) => {
+      if (targets.some((target) => slugMatches(item.productIdSlug, target) || slugMatches(item.productNameSlug, target))) {
+        count += 1;
+      }
+    });
+
+    memo.set(cacheKey, count);
+    return count;
+  };
+}
+
+function slugMatches(valueSlug, targetSlug) {
+  if (!valueSlug || !targetSlug) {
+    return false;
+  }
+
+  return (
+    valueSlug === targetSlug ||
+    (targetSlug.length >= 3 && valueSlug.includes(targetSlug)) ||
+    (valueSlug.length >= 3 && targetSlug.includes(valueSlug))
+  );
 }
 
 async function createInventoryItem(item) {
@@ -1859,7 +2096,7 @@ app.put("/api/admin/configuracion-sitio/:id", requirePermission("plantillas"), a
       despues: saved,
       detalles: { nombre: saved.nombre },
     });
-    clearPublicApiCache("site-settings");
+    await clearPublicApiCache("site-settings");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1934,9 +2171,10 @@ app.post("/api/admin/logout", requireAuth, (req, res) => {
 
 app.get("/api/admin/productos", requireAuth, async (_req, res) => {
   try {
-    const products = await readProducts();
+    const products = await getCachedAdminProducts();
+    res.setHeader("Cache-Control", "no-store");
     res.json(
-      products.sort((left, right) => {
+      [...products].sort((left, right) => {
         const leftOrder = Number.isFinite(Number(left.orden)) ? Number(left.orden) : 999;
         const rightOrder = Number.isFinite(Number(right.orden)) ? Number(right.orden) : 999;
         return leftOrder - rightOrder || String(left.nombre || "").localeCompare(String(right.nombre || ""));
@@ -1991,7 +2229,7 @@ app.post("/api/admin/productos", requirePermission("productos"), async (req, res
     }
 
     const saved = await createProduct(product);
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.status(201).json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -2010,7 +2248,7 @@ app.put("/api/admin/productos/:id", requirePermission("productos"), async (req, 
     }
 
     const saved = await updateProduct(req.params.id, product);
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -2021,7 +2259,7 @@ app.put("/api/admin/productos/:id", requirePermission("productos"), async (req, 
 app.delete("/api/admin/productos/:id", requirePermission("productos"), async (req, res) => {
   try {
     await deleteProduct(req.params.id);
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.status(204).end();
   } catch (error) {
     logUnexpectedError(error);
@@ -2048,7 +2286,7 @@ app.post("/api/admin/inventario", requirePermission("inventario"), async (req, r
       despues: item,
       detalles: { producto: item.producto_nombre || item.producto_id, proveedor: item.proveedor },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.status(201).json(item);
   } catch (error) {
     logUnexpectedError(error);
@@ -2077,7 +2315,7 @@ async function handleBulkInventoryUpdate(req, res) {
     });
 
     if (updatedItems.length > 0) {
-      clearPublicApiCache("products-with-stock");
+      await clearPublicApiCache("products-with-stock");
     }
     res.json({ updated: updatedItems.length, items: updatedItems });
   } catch (error) {
@@ -2109,7 +2347,7 @@ app.put("/api/admin/inventario/:id", requirePermission("inventario"), async (req
       despues: saved,
       detalles: { producto: saved.producto_nombre || saved.producto_id, proveedor: saved.proveedor },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -2129,7 +2367,7 @@ app.post("/api/admin/inventario/:id/liberar", requirePermission("inventario"), a
       despues: saved,
       detalles: { pedido_id: before.pedido_id || "" },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -2149,7 +2387,7 @@ app.put("/api/admin/inventario/:id/renovar", requirePermission("inventario"), as
       despues: saved,
       detalles: { vencimiento_anterior: before.fecha_vencimiento_cliente || "", vencimiento_nuevo: saved.fecha_vencimiento_cliente || "" },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -2233,6 +2471,22 @@ app.post("/api/admin/renovaciones/:id/confirmar", requirePermission("renovacione
       if (savedRenewalProof?.comprobante_notas) {
         payload.comprobante_notas = savedRenewalProof.comprobante_notas;
       }
+    } else if (proofFile) {
+      const uploadedProof = await uploadProofFileToAppsScript(proofFile).catch((error) => {
+        logUnexpectedError(error);
+        return null;
+      });
+
+      if (uploadedProof?.url) {
+        payload.comprobante_url = uploadedProof.url;
+      }
+
+      payload.comprobante_notas = [
+        payload.comprobante_notas,
+        uploadedProof ? `Archivo: ${uploadedProof.nombre}` : `Archivo recibido localmente: ${proofFile.nombre}`,
+      ]
+        .filter(Boolean)
+        .join(" | ");
     }
 
     const result = await confirmRenewal(req.params.id, payload);
@@ -2316,7 +2570,7 @@ app.post("/api/admin/compras-proveedor", requirePermission("proveedores"), async
       detalles: { proveedor: purchase.proveedor_nombre || purchase.proveedor_id, cantidad: purchase.cantidad, inventario_generado: purchase.inventario_generado || 0 },
     });
     if (Number(purchase.inventario_generado || 0) > 0) {
-      clearPublicApiCache("products-with-stock");
+      await clearPublicApiCache("products-with-stock");
     }
     res.status(201).json(purchase);
   } catch (error) {
@@ -2338,7 +2592,7 @@ app.put("/api/admin/compras-proveedor/:id", requirePermission("proveedores"), as
       detalles: { proveedor: purchase.proveedor_nombre || purchase.proveedor_id, cantidad: purchase.cantidad, inventario_generado: purchase.inventario_generado || 0 },
     });
     if (Number(purchase.inventario_generado || 0) > 0 || before.estado !== purchase.estado) {
-      clearPublicApiCache("products-with-stock");
+      await clearPublicApiCache("products-with-stock");
     }
     res.json(purchase);
   } catch (error) {
@@ -2557,16 +2811,23 @@ app.post("/api/pedidos/:id/comprobante", proofRateLimit, handleProofUpload, asyn
       return;
     }
 
-    const order =
-      typeof orderStore.submitProof === "function"
-        ? await orderStore.submitProof(req.params.id, patch)
-        : await orderStore.updateOrder(req.params.id, {
-            ...patch,
-            comprobante_archivo: undefined,
-            comprobante_notas: [patch.comprobante_notas, proofFile ? `Archivo recibido localmente: ${proofFile.nombre}` : ""]
-              .filter(Boolean)
-              .join(" | "),
-          });
+    let order;
+    if (typeof orderStore.submitProof === "function") {
+      order = await orderStore.submitProof(req.params.id, patch);
+    } else {
+      const uploadedProof = await uploadProofFileToAppsScript(proofFile).catch((error) => {
+        logUnexpectedError(error);
+        return null;
+      });
+      order = await orderStore.updateOrder(req.params.id, {
+        ...patch,
+        comprobante_archivo: undefined,
+        comprobante_url: uploadedProof?.url || "",
+        comprobante_notas: [patch.comprobante_notas, uploadedProof ? `Archivo: ${uploadedProof.nombre}` : proofFile ? `Archivo recibido localmente: ${proofFile.nombre}` : ""]
+          .filter(Boolean)
+          .join(" | "),
+      });
+    }
     res.json(order);
   } catch (error) {
     logUnexpectedError(error);
@@ -2609,17 +2870,24 @@ app.post("/api/admin/pedidos", requirePermission("compras"), handleProofUpload, 
         return;
       }
 
-      savedOrder = normalizeOrder(
-        typeof orderStore.submitProof === "function"
-          ? await orderStore.submitProof(order.pedido_id, proofPatch)
-          : await orderStore.updateOrder(order.pedido_id, {
-              ...proofPatch,
-              comprobante_archivo: undefined,
-              comprobante_notas: [proofPatch.comprobante_notas, proofFile ? `Archivo recibido localmente: ${proofFile.nombre}` : ""]
-                .filter(Boolean)
-                .join(" | "),
-            })
-      );
+      if (typeof orderStore.submitProof === "function") {
+        savedOrder = normalizeOrder(await orderStore.submitProof(order.pedido_id, proofPatch));
+      } else {
+        const uploadedProof = await uploadProofFileToAppsScript(proofFile).catch((error) => {
+          logUnexpectedError(error);
+          return null;
+        });
+        savedOrder = normalizeOrder(
+          await orderStore.updateOrder(order.pedido_id, {
+            ...proofPatch,
+            comprobante_archivo: undefined,
+            comprobante_url: uploadedProof?.url || "",
+            comprobante_notas: [proofPatch.comprobante_notas, uploadedProof ? `Archivo: ${uploadedProof.nombre}` : proofFile ? `Archivo recibido localmente: ${proofFile.nombre}` : ""]
+              .filter(Boolean)
+              .join(" | "),
+          })
+        );
+      }
 
       if (requestedStatus === "pagado") {
         savedOrder = normalizeOrder(
@@ -2704,7 +2972,7 @@ app.post("/api/admin/pedidos/:id/asignar-inventario", requirePermission("compras
         asignaciones: Array.isArray(result.order.asignaciones_inventario) ? result.order.asignaciones_inventario.length : 0,
       },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(result);
   } catch (error) {
     logUnexpectedError(error);

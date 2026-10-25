@@ -806,7 +806,7 @@ async function apiRequest(url, options = {}) {
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 35_000);
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
 
     try {
       const response = await fetch(url, {

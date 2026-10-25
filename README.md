@@ -63,13 +63,15 @@ APPS_SCRIPT_CATALOG_URL=<url_del_web_app_de_apps_script>
 APPS_SCRIPT_ADMIN_TOKEN=<token_admin>
 APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID=<id_carpeta_drive>
 APPS_SCRIPT_TIMEOUT_MS=15000
-PUBLIC_API_CACHE_TTL_MS=30000
+PUBLIC_API_CACHE_TTL_MS=120000
 PROOF_UPLOAD_MAX_MB=8
 ```
 
 El token real vive en `.env`, que no se versiona. Ese valor debe coincidir exactamente con `ADMIN_TOKEN` dentro del codigo desplegado en Google Apps Script. `APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID` debe ser el ID de una carpeta de Google Drive donde se guardaran imagenes y PDF de comprobantes. Si cambias el token, el folder o el codigo de Apps Script, vuelve a desplegar el Web App.
 
-`PUBLIC_API_CACHE_TTL_MS` controla el cache corto de la tienda para catalogo, metodos de pago y configuracion. Por defecto usa `30000` milisegundos. Si necesitas que todo sea inmediato puedes usar `0`; si Apps Script esta lento, puedes subirlo a `60000`.
+`PUBLIC_API_CACHE_TTL_MS` controla el cache de la tienda para catalogo, metodos de pago y configuracion. Por defecto usa `120000` milisegundos (2 minutos). Si necesitas que todo sea inmediato puedes usar `0`.
+
+En Cloudflare Workers este cache tiene dos niveles: un L1 en memoria por instancia y un **L2 en el namespace KV** (binding `SESSIONS`, con prefijo propio). El L2 sobrevive al reciclado de instancias y comparte el catalogo entre las ubicaciones del borde, de modo que una instancia nueva puede responder sin volver a consultar Apps Script. Al guardar cambios desde el admin se invalidan ambos niveles. Como KV tiene consistencia eventual, un cambio puede tardar unos segundos en propagarse a otras ubicaciones, pero el TTL corto lo acota.
 
 `PROOF_UPLOAD_MAX_MB` controla el tamano maximo del archivo de comprobante. La app acepta un solo archivo y limita la cantidad/tamano de campos del formulario para proteger el servidor frente a cargas multipart abusivas.
 
@@ -104,10 +106,10 @@ npx wrangler secret put SESSION_SECRET
 [vars]
 NODE_ENV = "production"
 CATALOG_STORAGE = "apps-script"
-# Mantener vacio durante la migracion. Solo despues de validar D1:
-# OPERATIONS_STORAGE = "d1"
-APPS_SCRIPT_TIMEOUT_MS = "30000"
-PUBLIC_API_CACHE_TTL_MS = "30000"
+# Mantener en "apps-script" durante la migracion. Solo despues de validar D1:
+OPERATIONS_STORAGE = "apps-script"
+APPS_SCRIPT_TIMEOUT_MS = "15000"
+PUBLIC_API_CACHE_TTL_MS = "120000"
 PROOF_UPLOAD_MAX_MB = "8"
 SESSION_MAX_AGE_HOURS = "24"
 ```
@@ -115,6 +117,55 @@ SESSION_MAX_AGE_HOURS = "24"
 5. Prueba localmente con `copy .dev.vars.example .dev.vars`, completa los valores y ejecuta `npm run dev:worker`. Despliega con `npm run deploy:worker`.
 
 Los Assets se publican desde `public/`; las rutas `/api/*` entran a Express. Las sesiones se almacenan en KV con expiracion igual a `SESSION_MAX_AGE_HOURS`, por lo que el inicio de sesion funciona entre instancias y ubicaciones de Workers.
+
+## Migracion a D1 (Fase 3)
+
+D1 reemplaza a Google Sheets como almacen de la operacion diaria. El interruptor es `OPERATIONS_STORAGE`:
+
+- `apps-script` (actual): Sheets sigue siendo la fuente de datos.
+- `d1`: catalogo, inventario, pedidos, renovaciones, proveedores, compras, metodos de pago, plantillas, configuracion, usuarios y auditoria se leen/escriben en D1.
+
+El esquema vive en [migrations/0001_init.sql](migrations/0001_init.sql) y es idempotente.
+
+1. Aplicar el esquema:
+
+```bash
+npx wrangler d1 migrations apply mawg-streaming-db --remote
+```
+
+2. Sembrar el usuario del panel. Los usuarios no se importan de Sheets (Apps Script solo expone `users.auth`):
+
+```bash
+npx wrangler d1 execute mawg-streaming-db --remote --command "INSERT INTO users (usuario, nombre, rol, password, estado, permisos) VALUES ('admin','Administrador','admin','TU_CLAVE','activo','*')"
+```
+
+Mientras no siembres usuarios, el login sigue funcionando con `ADMIN_USER`/`ADMIN_PASSWORD` del entorno, que actua como respaldo del servidor.
+
+3. Importar cada tabla desde Sheets con la app desplegada y sesion de admin. La ruta exige una confirmacion literal:
+
+```text
+POST /api/admin/migraciones/d1/importar-sheets
+{ "confirmacion": "IMPORTAR_SHEETS_A_D1", "table": "products" }
+```
+
+Repite con: `products`, `providers`, `provider_purchases`, `inventory`, `orders`, `renewals`, `payment_methods`, `message_templates`, `site_settings`. Cada llamada registra una fila en `migration_runs`; si una tabla falla, reintenta solo esa.
+
+4. Verificar paridad de conteos antes de cambiar el interruptor:
+
+```bash
+npx wrangler d1 execute mawg-streaming-db --remote --command "SELECT 'products' tabla, COUNT(*) n FROM products UNION ALL SELECT 'inventory', COUNT(*) FROM inventory UNION ALL SELECT 'orders', COUNT(*) FROM orders UNION ALL SELECT 'renewals', COUNT(*) FROM renewals"
+```
+
+5. Activar D1: cambia `OPERATIONS_STORAGE = "d1"` en `wrangler.toml` y ejecuta `npm run deploy:worker`.
+
+6. Revertir: vuelve a `OPERATIONS_STORAGE = "apps-script"` y despliega. La importacion solo lee de Sheets, asi que las hojas quedan intactas.
+
+Notas:
+
+- La importacion usa `INSERT ... ON CONFLICT(clave) DO UPDATE`, por lo que reimportar actualiza sin duplicar. Los registros sin clave se omiten.
+- Los comprobantes (cliente, venta manual y confirmacion de renovacion) se siguen guardando en Google Drive. Con D1 activo el Worker llama a la accion `proof.upload` del Apps Script, que solo sube el archivo y devuelve la URL; el dato se persiste en D1. Por eso el Web App debe estar actualizado y con `PROOF_DRIVE_FOLDER_ID` configurado.
+- Los adaptadores D1 hacen solo CRUD: la logica de negocio (asignacion de inventario, precios, datos de entrega) vive en `server.js` y se ejecuta igual con Sheets o con D1.
+- A partir del corte con `"d1"`, las hojas de Google Sheets dejan de actualizarse; D1 pasa a ser la fuente.
 
 ## Despliegue en Render (heredado)
 
@@ -136,7 +187,7 @@ APPS_SCRIPT_CATALOG_URL=<url_del_web_app_de_apps_script>
 APPS_SCRIPT_ADMIN_TOKEN=<token_admin>
 APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID=<id_carpeta_drive>
 APPS_SCRIPT_TIMEOUT_MS=15000
-PUBLIC_API_CACHE_TTL_MS=30000
+PUBLIC_API_CACHE_TTL_MS=120000
 ADMIN_USER=admin-de-respaldo
 ADMIN_PASSWORD=clave-de-respaldo
 SESSION_SECRET=una-clave-larga-y-segura
@@ -376,7 +427,7 @@ npm start
 
 ## Troubleshooting Apps Script
 
-- La version actual de `scripts/google-apps-script-catalogo.gs` cachea los listados durante 30 segundos y elimina ese cache al guardar desde la app. Si editas una hoja directamente en Google Sheets, espera hasta 30 segundos para ver el cambio publicado.
+- La version actual de `scripts/google-apps-script-catalogo.gs` cachea los listados durante 180 segundos, los invalida de forma selectiva (solo las hojas afectadas) al guardar desde la app. Si editas una hoja directamente en Google Sheets, espera hasta 180 segundos para ver el cambio publicado.
 - Para aplicar mejoras al script, reemplaza el codigo completo en `Extensiones > Apps Script` y crea una **nueva version** del Web App desde `Implementar > Administrar implementaciones`; guardar el archivo no actualiza la URL `/exec` que usa Cloudflare.
 - Si el admin muestra `Accion no soportada`, el Web App publicado no tiene la ultima version de `scripts/google-apps-script-catalogo.gs`.
 - Si un combo rechaza una cuenta compatible, vuelve a desplegar Apps Script con la version actual. La funcion clave es `inventoryMatchesAssignment_`.

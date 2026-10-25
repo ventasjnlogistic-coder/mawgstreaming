@@ -1,5 +1,14 @@
 // Adaptadores D1 para la operacion diaria. Se activan solamente con
 // OPERATIONS_STORAGE=d1; mientras tanto Apps Script sigue siendo la fuente.
+//
+// Regla de diseno: estos adaptadores solo hacen CRUD. La logica de negocio
+// (asignar inventario, precios, datos de entrega, validaciones de estado) vive
+// en server.js y se ejecuta tanto con Apps Script como con D1. Por eso NO se
+// implementan aqui metodos como assignManyToOrder: si existieran, server.js los
+// preferiria y saltaria esa logica.
+const { publicAdminUser } = require("../users/validation");
+const { getDefaultPaymentMethods } = require("../paymentMethods/validation");
+
 const TABLES = {
   products: { key: "id", fields: ["id", "nombre", "tipo", "precio", "descripcion", "imagen", "estado", "categoria", "badge", "cta", "componentes_json", "plantilla_entrega", "vender", "orden", "creado_en", "actualizado_en"] },
   providers: { key: "proveedor_id", fields: ["proveedor_id", "nombre", "contacto", "producto_principal", "costo_referencial", "estado", "notas", "creado_en", "actualizado_en"] },
@@ -46,23 +55,86 @@ class D1TableStore {
   async remove(id) { await this.db.prepare(`DELETE FROM ${this.table} WHERE ${this.definition.key} = ?`).bind(id).run(); return true; }
 }
 
-class D1CatalogStore extends D1TableStore { constructor(db) { super(db, "products"); } listProducts() { return this.list(); } createProduct(row) { return this.save(row); } updateProduct(id, row) { return this.update(id, row); } deleteProduct(id) { return this.remove(id); } async saveProducts(rows) { for (const row of rows) await this.save(row); return this.list(); } }
-class D1OrderStore extends D1TableStore { constructor(db) { super(db, "orders"); } listOrders() { return this.list(); } createOrder(row) { return this.save(row); } updateOrder(id, row) { return this.update(id, row); } submitProof(id, proof) { return this.update(id, proof); } }
-class D1RenewalStore extends D1TableStore { constructor(db) { super(db, "renewals"); } listRenewals() { return this.list(); } createRenewal(row) { return this.save(row); } updateRenewal(id, row) { return this.update(id, row); } submitProof(id, proof) { return this.update(id, proof); } }
+class D1CatalogStore extends D1TableStore {
+  constructor(db) { super(db, "products"); }
+  listProducts() { return this.list(); }
+  async createProduct(row) {
+    const key = String(row?.id || "").trim();
+    if (key && (await this.get(key))) {
+      const error = new Error("Ya existe un producto con ese ID.");
+      error.statusCode = 409;
+      throw error;
+    }
+    return this.save(row);
+  }
+  updateProduct(id, row) { return this.update(id, row); }
+  deleteProduct(id) { return this.remove(id); }
+  async saveProducts(rows) { for (const row of rows) await this.save(row); return this.list(); }
+}
+class D1OrderStore extends D1TableStore { constructor(db) { super(db, "orders"); } listOrders() { return this.list(); } createOrder(row) { return this.save(row); } updateOrder(id, row) { return this.update(id, row); } }
+class D1RenewalStore extends D1TableStore { constructor(db) { super(db, "renewals"); } listRenewals() { return this.list(); } createRenewal(row) { return this.save(row); } updateRenewal(id, row) { return this.update(id, row); } }
 class D1SupplierStore {
   constructor(db) { this.providers = new D1TableStore(db, "providers"); this.purchases = new D1TableStore(db, "provider_purchases"); }
   listProviders() { return this.providers.list(); } createProvider(row) { return this.providers.save(row); } updateProvider(id, row) { return this.providers.update(id, row); }
   listPurchases() { return this.purchases.list(); } createPurchase(row) { return this.purchases.save(row); } updatePurchase(id, row) { return this.purchases.update(id, row); }
 }
 class D1InventoryStore extends D1TableStore {
-  constructor(db) { super(db, "inventory"); } listItems() { return this.list(); } createItem(row) { return this.save(row); } updateItem(id, row) { return this.update(id, row); }
+  constructor(db) { super(db, "inventory"); }
+  listItems() { return this.list(); }
+  createItem(row) { return this.save(row); }
+  updateItem(id, row) { return this.update(id, row); }
   async bulkUpdateItems(filters = {}, patch = {}) { const items = await this.list(); const matching = items.filter((item) => Object.entries(filters).every(([key, expected]) => expected === undefined || expected === "" || item[key] === expected)); return Promise.all(matching.map((item) => this.update(item.inventario_id, patch))); }
-  async assignToOrder(orderId, inventoryId, patch = {}) { return this.update(inventoryId, { ...patch, pedido_id: orderId }); }
-  async assignManyToOrder(orderId, assignments = [], patch = {}) { return Promise.all(assignments.map((assignment) => this.assignToOrder(orderId, assignment.inventario_id || assignment.id, { ...patch, ...assignment }))); }
   async getDashboardSnapshot() { const [products, orders, inventory, renewals, providers, provider_purchases, payment_methods] = await Promise.all([new D1TableStore(this.db, "products").list(), new D1TableStore(this.db, "orders").list(), this.list(), new D1TableStore(this.db, "renewals").list(), new D1TableStore(this.db, "providers").list(), new D1TableStore(this.db, "provider_purchases").list(), new D1TableStore(this.db, "payment_methods").list()]); return { products, orders, inventory, renewals, providers, provider_purchases, payment_methods }; }
 }
-class D1PaymentMethodStore extends D1TableStore { constructor(db) { super(db, "payment_methods"); } async listMethods() { return (await this.list()).filter((row) => row.estado === "activo"); } }
+class D1PaymentMethodStore extends D1TableStore {
+  constructor(db) { super(db, "payment_methods"); }
+  async listMethods() {
+    const active = (await this.list()).filter((row) => row.estado === "activo");
+    return active.length ? active : getDefaultPaymentMethods();
+  }
+}
 class D1TemplateStore extends D1TableStore { constructor(db) { super(db, "message_templates"); } listTemplates() { return this.list(); } updateTemplate(id, row) { return this.update(id, row); } }
 class D1SiteSettingStore extends D1TableStore { constructor(db) { super(db, "site_settings"); } listSettings() { return this.list(); } updateSetting(id, row) { return this.update(id, row); } }
 
-module.exports = { enabled, D1CatalogStore, D1OrderStore, D1RenewalStore, D1SupplierStore, D1InventoryStore, D1PaymentMethodStore, D1TemplateStore, D1SiteSettingStore };
+class D1UserStore {
+  constructor(db) { this.db = db; }
+  async authenticate(usuario, password) {
+    const result = await this.db.prepare("SELECT * FROM users WHERE usuario = ?").bind(String(usuario || "").trim()).first();
+    if (!result || result.estado !== "activo" || String(result.password || "") !== String(password || "")) {
+      return null;
+    }
+    return publicAdminUser(result);
+  }
+}
+
+class D1AuditStore {
+  constructor(db) { this.db = db; }
+  async listEvents({ limit = 100 } = {}) {
+    const result = await this.db.prepare("SELECT * FROM audit_events ORDER BY creado_en DESC, rowid DESC LIMIT ?").bind(limit).all();
+    return (result.results || []).map((row) => {
+      let detalles = {};
+      try { detalles = JSON.parse(row.detalles_json || "{}"); } catch { detalles = {}; }
+      const { detalles_json, ...rest } = row;
+      return { ...rest, detalles };
+    });
+  }
+  async appendEvent(event) {
+    await this.db.prepare("INSERT INTO audit_events (evento_id, entidad, entidad_id, accion, estado_anterior, estado_nuevo, usuario, ip, detalles_json, creado_en) VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .bind(
+        event.evento_id,
+        event.entidad,
+        event.entidad_id,
+        event.accion,
+        event.estado_anterior || "",
+        event.estado_nuevo || "",
+        event.usuario,
+        event.ip,
+        JSON.stringify(event.detalles || {}),
+        event.creado_en
+      )
+      .run();
+    return event;
+  }
+}
+
+module.exports = { enabled, D1CatalogStore, D1OrderStore, D1RenewalStore, D1SupplierStore, D1InventoryStore, D1PaymentMethodStore, D1TemplateStore, D1SiteSettingStore, D1UserStore, D1AuditStore };

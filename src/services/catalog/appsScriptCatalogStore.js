@@ -2,7 +2,7 @@ class AppsScriptCatalogStore {
   constructor(config) {
     this.endpointUrl = config.endpointUrl;
     this.adminToken = config.adminToken;
-    this.timeoutMs = Number(config.timeoutMs || 30000);
+    this.timeoutMs = Number(config.timeoutMs || 15000);
     this.retryDelayMs = 800;
   }
 

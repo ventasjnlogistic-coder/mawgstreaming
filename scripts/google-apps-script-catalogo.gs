@@ -12,8 +12,36 @@ const ADMIN_TOKEN = "cambia-este-token-largo";
 const PROOF_DRIVE_FOLDER_ID = "cambia-este-id-de-carpeta-drive";
 const PROOF_FILE_PUBLIC_LINK = false;
 const SPREADSHEET_ID = "cambia-este-id-de-tu-spreadsheet";
-const READ_CACHE_TTL_SECONDS = 30;
+const READ_CACHE_TTL_SECONDS = 180;
 const READ_CACHE_KEYS = ["products", "orders", "inventory", "renewals", "payment_methods", "templates", "site_settings", "providers", "provider_purchases"];
+// Cada escritura invalida solo las hojas que realmente cambia, en lugar de
+// borrar todo el cache y forzar re-lecturas completas de Sheets.
+const READ_CACHE_KEYS_BY_ACTION = {
+  create: ["products"],
+  update: ["products"],
+  delete: ["products"],
+  replace: ["products"],
+  "orders.create": ["orders"],
+  "orders.proof": ["orders"],
+  "orders.update": ["orders"],
+  "inventory.create": ["inventory"],
+  "inventory.update": ["inventory"],
+  "inventory.bulkupdate": ["inventory"],
+  "inventory.assign": ["inventory", "orders"],
+  "inventory.assignmany": ["inventory", "orders"],
+  "renewals.create": ["renewals"],
+  "renewals.update": ["renewals"],
+  "renewals.proof": ["renewals", "inventory", "orders"],
+  "paymentmethods.create": ["payment_methods"],
+  "paymentmethods.update": ["payment_methods"],
+  "paymentmethods.delete": ["payment_methods"],
+  "templates.update": ["templates"],
+  "sitesettings.update": ["site_settings"],
+  "providers.create": ["providers"],
+  "providers.update": ["providers"],
+  "providerpurchases.create": ["provider_purchases", "inventory"],
+  "providerpurchases.update": ["provider_purchases", "inventory"],
+};
 const DEFAULT_DELIVERY_TEMPLATE = [
   ":estrella: *MAWG Streaming te da la bienvenida*",
   "",
@@ -263,9 +291,8 @@ function doPost(e) {
     const action = String(payload.action || "").toLowerCase();
 
     // No se mantienen lecturas obsoletas despues de crear, editar o eliminar.
-    if (action !== "users.auth" && !action.endsWith(".list") && action !== "dashboard.snapshot") {
-      invalidateReadCache_();
-    }
+    // Se invalida solo la entidad afectada; las acciones de lectura no tocan cache.
+    invalidateReadCache_(READ_CACHE_KEYS_BY_ACTION[action]);
 
     if (action === "orders.create") {
       return jsonResponse({ ok: true, order: createOrder_(payload.order || {}) });
@@ -279,6 +306,17 @@ function doPost(e) {
       return jsonResponse({
         ok: true,
         order: submitOrderProof_(payload.id, payload.proof || {}, payload.proof_drive_folder_id),
+      });
+    }
+
+    if (action === "proof.upload") {
+      if (!isValidToken_(payload.token)) {
+        return jsonResponse({ ok: false, error: "Token de administracion invalido." });
+      }
+
+      return jsonResponse({
+        ok: true,
+        file: uploadProofFile_(payload.proof || {}, payload.proof_drive_folder_id),
       });
     }
 
@@ -475,9 +513,17 @@ function getCachedRead_(key, loader) {
   return value;
 }
 
-function invalidateReadCache_() {
+function invalidateReadCache_(keys) {
+  const targets = Array.isArray(keys) && keys.length > 0 ? keys : [];
+
+  if (targets.length === 0) {
+    // Sin entidad identificada no se toca el cache: evita borrados masivos
+    // causados por acciones nuevas o desconocidas.
+    return;
+  }
+
   const cache = CacheService.getScriptCache();
-  READ_CACHE_KEYS.forEach(function (key) {
+  targets.forEach(function (key) {
     cache.remove("mawg:" + key);
   });
 }
@@ -1114,6 +1160,13 @@ function submitOrderProof_(id, proof, proofDriveFolderId) {
 }
 
 function saveProofFile_(orderId, filePayload, proofDriveFolderId) {
+  return uploadProofFile_(filePayload, proofDriveFolderId, "comprobante-" + sanitizeFileName_(orderId) + "-");
+}
+
+// Sube solo el archivo a Drive y devuelve la referencia. No toca ninguna hoja:
+// lo usa el Worker cuando la operacion vive en D1 y solo necesita alojar el
+// comprobante (accion proof.upload).
+function uploadProofFile_(filePayload, proofDriveFolderId, namePrefix) {
   const folderId = String(proofDriveFolderId || PROOF_DRIVE_FOLDER_ID || "").trim();
 
   if (!folderId || folderId === "cambia-este-id-de-carpeta-drive") {
@@ -1128,7 +1181,7 @@ function saveProofFile_(orderId, filePayload, proofDriveFolderId) {
   const originalName = sanitizeFileName_(filePayload.nombre || "comprobante");
   const mimeType = String(filePayload.tipo || "application/octet-stream");
   const bytes = Utilities.base64Decode(String(filePayload.contenido_base64));
-  const blob = Utilities.newBlob(bytes, mimeType, "comprobante-" + sanitizeFileName_(orderId) + "-" + originalName);
+  const blob = Utilities.newBlob(bytes, mimeType, String(namePrefix || "") + originalName);
   const driveFile = folder.createFile(blob);
 
   if (PROOF_FILE_PUBLIC_LINK) {
@@ -1676,37 +1729,40 @@ function createInventoryFromProviderPurchase_(purchase) {
     return item.compra_id === purchase.compra_id;
   }).length;
   var missingCount = Math.max(quantity - existingCount, 0);
+
+  if (missingCount === 0) {
+    return [];
+  }
+
   var provider = listProviders_().find(function (entry) {
     return entry.proveedor_id === purchase.proveedor_id;
   });
-  var created = [];
+  var itemsToCreate = [];
 
   for (var index = 0; index < missingCount; index += 1) {
-    created.push(
-      createInventoryItem_({
-        compra_id: purchase.compra_id,
-        producto_id: purchase.producto_id,
-        producto_nombre: purchase.producto_nombre,
-        proveedor: purchase.proveedor_nombre || (provider && provider.nombre) || purchase.proveedor_id,
-        celular_proveedor: (provider && provider.contacto) || "",
-        costo_proveedor: purchase.costo_unitario,
-        cuenta_usuario: purchase.cuenta_usuario,
-        cuenta_clave: purchase.cuenta_clave,
-        url_producto: purchase.url_producto,
-        link_bot: purchase.link_bot,
-        usuario_bot: purchase.usuario_bot,
-        contrasena_bot: purchase.contrasena_bot,
-        referencia_compra: purchase.referencia_pago || purchase.compra_id,
-        fecha_compra: purchase.fecha_compra,
-        fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
-        estado: "reservado",
-        estado_control: "Generado desde compra recibida",
-        notas: [purchase.notas, "Compra proveedor: " + purchase.compra_id].filter(Boolean).join(" | "),
-      })
-    );
+    itemsToCreate.push({
+      compra_id: purchase.compra_id,
+      producto_id: purchase.producto_id,
+      producto_nombre: purchase.producto_nombre,
+      proveedor: purchase.proveedor_nombre || (provider && provider.nombre) || purchase.proveedor_id,
+      celular_proveedor: (provider && provider.contacto) || "",
+      costo_proveedor: purchase.costo_unitario,
+      cuenta_usuario: purchase.cuenta_usuario,
+      cuenta_clave: purchase.cuenta_clave,
+      url_producto: purchase.url_producto,
+      link_bot: purchase.link_bot,
+      usuario_bot: purchase.usuario_bot,
+      contrasena_bot: purchase.contrasena_bot,
+      referencia_compra: purchase.referencia_pago || purchase.compra_id,
+      fecha_compra: purchase.fecha_compra,
+      fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
+      estado: "reservado",
+      estado_control: "Generado desde compra recibida",
+      notas: [purchase.notas, "Compra proveedor: " + purchase.compra_id].filter(Boolean).join(" | "),
+    });
   }
 
-  return created;
+  return createInventoryItemsBatch_(itemsToCreate);
 }
 
 function rowToProviderPurchase_(row) {
@@ -1836,6 +1892,53 @@ function createInventoryItem_(item) {
   formatInventoryTextRow_(sheet, nextRow);
   sheet.getRange(nextRow, 1, 1, INVENTORY_HEADERS.length).setValues([inventoryItemToRow_(normalized)]);
   return normalized;
+}
+
+// Crea varias cuentas en una sola escritura. Antes se llamaba a
+// createInventoryItem_ una vez por cuenta (appendRow + formato + validacion +
+// lectura de la hoja completa por cada item), lo que hacia la operacion O(N).
+function createInventoryItemsBatch_(items) {
+  const normalizedList = (items || []).map(normalizeInventoryItem_);
+
+  if (normalizedList.length === 0) {
+    return [];
+  }
+
+  normalizedList.forEach(validateInventoryItem_);
+
+  const sheet = getInventorySheet_();
+  const lastRow = sheet.getLastRow();
+  const startRow = lastRow + 1;
+
+  if (lastRow >= 2) {
+    const existingIds = new Set(
+      sheet
+        .getRange(2, 1, lastRow - 1, 1)
+        .getValues()
+        .map(function (row) {
+          return String(row[0]);
+        })
+    );
+
+    normalizedList.forEach(function (item) {
+      if (existingIds.has(String(item.inventario_id))) {
+        throw new Error("Ya existe una cuenta de inventario con ese ID.");
+      }
+    });
+  }
+
+  const rows = normalizedList.map(inventoryItemToRow_);
+
+  INVENTORY_TEXT_FIELDS.forEach(function (field) {
+    const column = INVENTORY_HEADERS.indexOf(field) + 1;
+    if (column > 0) {
+      sheet.getRange(startRow, column, rows.length, 1).setNumberFormat("@");
+    }
+  });
+
+  sheet.getRange(startRow, 1, rows.length, INVENTORY_HEADERS.length).setValues(rows);
+
+  return normalizedList;
 }
 
 function updateInventoryItem_(id, item) {
