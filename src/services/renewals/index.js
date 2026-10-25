@@ -1,11 +1,13 @@
 const JsonRenewalStore = require("./jsonRenewalStore");
 const AppsScriptRenewalStore = require("./appsScriptRenewalStore");
+const { enabled: d1Enabled, D1RenewalStore } = require("../d1/d1OperationalStores");
 
 function hasAppsScriptConfig(env) {
   return Boolean(String(env.APPS_SCRIPT_CATALOG_URL || "").trim() && String(env.APPS_SCRIPT_ADMIN_TOKEN || "").trim());
 }
 
 function createRenewalStore(env = process.env) {
+  if (d1Enabled(env)) return new D1RenewalStore(env.DB);
   const jsonStore = new JsonRenewalStore(env.RENEWALS_JSON_PATH || "renovaciones.json");
 
   if (env.RENEWALS_STORAGE === "json") {

@@ -1,5 +1,8 @@
 require("dotenv").config();
 
+const runtimeEnv = globalThis.__MAWG_ENV__ || process.env;
+const isWorkerRuntime = Boolean(globalThis.__MAWG_ENV__);
+
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -35,6 +38,8 @@ const {
   RENEWAL_STATUSES,
 } = require("./src/services/renewals/validation");
 const FileSessionStore = require("./src/services/sessions/fileSessionStore");
+const KvSessionStore = require("./src/services/sessions/kvSessionStore");
+const D1SheetsImportService = require("./src/services/migrations/d1SheetsImportService");
 const {
   normalizeInventoryItem,
   validateInventoryItem,
@@ -50,33 +55,51 @@ const {
 } = require("./src/services/siteSettings/validation");
 
 const app = express();
-const port = Number(process.env.PORT || 3000);
-const publicDir = path.join(__dirname, "public");
-const isProduction = process.env.NODE_ENV === "production";
-const host = process.env.HOST || (isProduction ? "0.0.0.0" : "127.0.0.1");
-const siteUrl = String(process.env.SITE_URL || "").replace(/\/+$/, "");
+const port = Number(runtimeEnv.PORT || 3000);
+// En Workers los Assets se sirven antes de llegar a Express; el directorio
+// local solo se necesita para el servidor Node de desarrollo.
+const publicDir = path.join(typeof __dirname === "string" ? __dirname : ".", "public");
+const isProduction = runtimeEnv.NODE_ENV === "production";
+const host = runtimeEnv.HOST || (isProduction ? "0.0.0.0" : "127.0.0.1");
+const siteUrl = String(runtimeEnv.SITE_URL || "").replace(/\/+$/, "");
 const compressedAssetCache = new Map();
 const trustProxy = isProduction
-  ? process.env.TRUST_PROXY !== "false" && process.env.TRUST_PROXY !== "0"
-  : process.env.TRUST_PROXY === "true" || process.env.TRUST_PROXY === "1";
-const catalogStore = createCatalogStore();
-const localCatalogStore = new JsonCatalogStore(process.env.CATALOG_JSON_PATH || "productos.json");
-const orderStore = createOrderStore();
-const inventoryStore = createInventoryStore();
-const renewalStore = createRenewalStore();
-const paymentMethodStore = createPaymentMethodStore();
-const messageTemplateStore = createMessageTemplateStore();
-const siteSettingStore = createSiteSettingStore();
-const userStore = createUserStore();
-const supplierStore = createSupplierStore();
-const auditStore = createAuditStore();
+  ? runtimeEnv.TRUST_PROXY !== "false" && runtimeEnv.TRUST_PROXY !== "0"
+  : runtimeEnv.TRUST_PROXY === "true" || runtimeEnv.TRUST_PROXY === "1";
+const catalogStore = createCatalogStore(runtimeEnv);
+const localCatalogStore = new JsonCatalogStore(runtimeEnv.CATALOG_JSON_PATH || "productos.json");
+const orderStore = createOrderStore(runtimeEnv);
+const inventoryStore = createInventoryStore(runtimeEnv);
+const renewalStore = createRenewalStore(runtimeEnv);
+const paymentMethodStore = createPaymentMethodStore(runtimeEnv);
+const messageTemplateStore = createMessageTemplateStore(runtimeEnv);
+const siteSettingStore = createSiteSettingStore(runtimeEnv);
+const userStore = createUserStore(runtimeEnv);
+const supplierStore = createSupplierStore(runtimeEnv);
+const auditStore = createAuditStore(runtimeEnv);
+const d1SheetsImportService = new D1SheetsImportService({
+  db: globalThis.__MAWG_D1__,
+  sources: {
+    // La importacion no debe ocultar un fallo de Apps Script con el respaldo
+    // JSON local: ese archivo no existe dentro de un Worker.
+    products: () => readProductsForD1Import(),
+    providers: () => readProviders(),
+    providerPurchases: () => readProviderPurchases(),
+    inventory: () => readInventory(),
+    orders: async () => (await orderStore.listOrders()).map(normalizeOrder),
+    renewals: () => readRenewals(),
+    paymentMethods: () => paymentMethodStore.listMethods(),
+    messageTemplates: () => messageTemplateStore.listTemplates(),
+    siteSettings: () => siteSettingStore.listSettings(),
+  },
+});
 
 if (trustProxy) {
   app.set("trust proxy", 1);
 }
 
 function getRequiredEnv(name) {
-  const value = process.env[name];
+  const value = runtimeEnv[name];
 
   if (!value) {
     throw new Error(`Falta configurar ${name} en .env.`);
@@ -88,26 +111,112 @@ function getRequiredEnv(name) {
 const adminUser = getRequiredEnv("ADMIN_USER");
 const adminPassword = getRequiredEnv("ADMIN_PASSWORD");
 const sessionSecret = getRequiredEnv("SESSION_SECRET");
-const configuredSessionMaxAgeHours = Number(process.env.SESSION_MAX_AGE_HOURS);
+const configuredSessionMaxAgeHours = Number(runtimeEnv.SESSION_MAX_AGE_HOURS);
 const sessionMaxAgeHours =
   Number.isFinite(configuredSessionMaxAgeHours) && configuredSessionMaxAgeHours > 0 ? configuredSessionMaxAgeHours : 8;
 const sessionMaxAgeMs = 1000 * 60 * 60 * sessionMaxAgeHours;
 const defaultSessionFileDir = isProduction ? path.join(os.tmpdir(), "mawg-streaming-sessions") : ".sessions";
 const sessionStore =
-  isProduction || process.env.SESSION_STORE === "file"
+  globalThis.__MAWG_SESSION_KV__
+    ? new KvSessionStore({
+        kv: globalThis.__MAWG_SESSION_KV__,
+        ttlMs: sessionMaxAgeMs,
+      })
+    : isWorkerRuntime
+    ? undefined
+    : isProduction || runtimeEnv.SESSION_STORE === "file"
     ? new FileSessionStore({
-        directory: process.env.SESSION_FILE_DIR || defaultSessionFileDir,
+        directory: runtimeEnv.SESSION_FILE_DIR || defaultSessionFileDir,
         ttlMs: sessionMaxAgeMs,
       })
     : undefined;
-const configuredProofUploadMaxMb = Number(process.env.PROOF_UPLOAD_MAX_MB);
+
+if (isWorkerRuntime && !globalThis.__MAWG_SESSION_KV__) {
+  // En Workers no se usa el sistema de archivos: sin el binding KV las sesiones
+  // quedarian solo en memoria y se perderian al reciclar la instancia.
+  console.error(
+    "SESSIONS KV no esta enlazado. Configura el binding KV 'SESSIONS' en wrangler.toml para que el login del admin persista."
+  );
+}
+const configuredProofUploadMaxMb = Number(runtimeEnv.PROOF_UPLOAD_MAX_MB);
 const proofUploadMaxMb = Number.isFinite(configuredProofUploadMaxMb) && configuredProofUploadMaxMb > 0 ? configuredProofUploadMaxMb : 8;
 const proofUploadMaxBytes = Math.max(1, proofUploadMaxMb) * 1024 * 1024;
 const proofUploadFieldValueMaxBytes = 16 * 1024;
-const configuredPublicApiCacheTtlMs = Number(process.env.PUBLIC_API_CACHE_TTL_MS);
+const configuredPublicApiCacheTtlMs = Number(runtimeEnv.PUBLIC_API_CACHE_TTL_MS);
 const publicApiCacheTtlMs =
-  Number.isFinite(configuredPublicApiCacheTtlMs) && configuredPublicApiCacheTtlMs >= 0 ? configuredPublicApiCacheTtlMs : 30 * 1000;
+  Number.isFinite(configuredPublicApiCacheTtlMs) && configuredPublicApiCacheTtlMs >= 0 ? configuredPublicApiCacheTtlMs : 120 * 1000;
 const publicApiCache = new Map();
+// Las lecturas del admin ya tienen cache corto en el navegador (15s). Este
+// cache del worker solo absorbe rafagas de peticiones duplicadas del panel.
+const ADMIN_API_CACHE_TTL_MS = 15 * 1000;
+const PUBLIC_CACHE_ALIASES = {
+  "products-with-stock": ["admin-products"],
+};
+// Si Apps Script falla, se puede servir la ultima copia buena del catalogo
+// durante este margen extra antes de mostrar un error al cliente.
+const PUBLIC_API_STALE_GRACE_MS = 60 * 60 * 1000;
+// Cache L2 en KV: sobrevive al reciclado de instancias del Worker y comparte el
+// catalogo entre las distintas ubicaciones del borde. Reutiliza el namespace de
+// sesiones con un prefijo propio. KV tiene consistencia eventual (~60s), por eso
+// la invalidacion se apoya tambien en el L1 en memoria y en el TTL corto.
+const publicCacheKv = globalThis.__MAWG_SESSION_KV__ || null;
+const PUBLIC_CACHE_KV_PREFIX = "public-api-cache:";
+const PUBLIC_CACHE_KV_MIN_TTL_SECONDS = 60;
+
+function buildPublicJsonPayloadFromJson(json) {
+  return {
+    json,
+    gzip: zlib.gzipSync(json, { level: zlib.constants.Z_BEST_SPEED }),
+    etag: `"json-${crypto.createHash("sha1").update(json).digest("hex")}"`,
+  };
+}
+
+function buildPublicJsonPayload(value) {
+  return buildPublicJsonPayloadFromJson(JSON.stringify(value));
+}
+
+async function readPublicApiCacheFromKv(key) {
+  if (!publicCacheKv) {
+    return null;
+  }
+
+  try {
+    const raw = await publicCacheKv.get(PUBLIC_CACHE_KV_PREFIX + key, "text");
+    return typeof raw === "string" && raw.length > 0 ? raw : null;
+  } catch (error) {
+    logUnexpectedError(error);
+    return null;
+  }
+}
+
+async function writePublicApiCacheToKv(key, json) {
+  if (!publicCacheKv) {
+    return;
+  }
+
+  try {
+    const ttlSeconds = Math.max(PUBLIC_CACHE_KV_MIN_TTL_SECONDS, Math.ceil(publicApiCacheTtlMs / 1000));
+    await publicCacheKv.put(PUBLIC_CACHE_KV_PREFIX + key, json, { expirationTtl: ttlSeconds });
+  } catch (error) {
+    logUnexpectedError(error);
+  }
+}
+
+async function deletePublicApiCacheFromKv(keys) {
+  if (!publicCacheKv) {
+    return;
+  }
+
+  await Promise.all(
+    keys.map(async (key) => {
+      try {
+        await publicCacheKv.delete(PUBLIC_CACHE_KV_PREFIX + key);
+      } catch (error) {
+        logUnexpectedError(error);
+      }
+    })
+  );
+}
 
 function setSecurityHeaders(_req, res, next) {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -140,7 +249,9 @@ function getContentType(fileName) {
 }
 
 function acceptsGzip(req) {
-  return /\bgzip\b/.test(String(req.get("accept-encoding") || ""));
+  // El adaptador node:http de Workers ya negocia la compresion en el borde;
+  // reenviar un Buffer gzip desde Express pierde Content-Encoding.
+  return !isWorkerRuntime && /\bgzip\b/.test(String(req.get("accept-encoding") || ""));
 }
 
 function getCompressedAsset(filePath) {
@@ -227,7 +338,7 @@ function createRateLimiter({ windowMs, max, message }) {
 
 const loginRateLimit = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === "test" ? 100 : 8,
+  max: runtimeEnv.NODE_ENV === "test" ? 100 : 8,
   message: "Demasiados intentos de acceso. Intenta nuevamente en unos minutos.",
 });
 const orderRateLimit = createRateLimiter({
@@ -259,8 +370,71 @@ app.use(
   })
 );
 
+const signedAuthCookieName = "streamhub.auth";
+
+function getCookieValue(req, name) {
+  const prefix = `${name}=`;
+  return String(req.headers.cookie || "")
+    .split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(prefix))
+    ?.slice(prefix.length);
+}
+
+function createSignedAuthToken(user) {
+  const payload = {
+    u: String(user?.usuario || ""),
+    n: String(user?.nombre || ""),
+    r: String(user?.rol || ""),
+    p: Array.isArray(user?.permisos) ? user.permisos : String(user?.permisos || "").split(",").filter(Boolean),
+    e: Date.now() + sessionMaxAgeMs,
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", sessionSecret).update(encodedPayload).digest("base64url");
+  return `${encodedPayload}.${signature}`;
+}
+
+function readSignedAuthUser(req) {
+  const token = getCookieValue(req, signedAuthCookieName);
+  if (!token) {
+    return null;
+  }
+
+  const [encodedPayload, signature, ...rest] = token.split(".");
+  if (!encodedPayload || !signature || rest.length > 0) {
+    return null;
+  }
+
+  const expectedSignature = crypto.createHmac("sha256", sessionSecret).update(encodedPayload).digest("base64url");
+  if (!safeCompare(signature, expectedSignature)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    if (!payload?.u || !Number.isFinite(Number(payload.e)) || Number(payload.e) <= Date.now()) {
+      return null;
+    }
+    return {
+      usuario: payload.u,
+      nombre: payload.n || payload.u,
+      rol: payload.r || "admin",
+      permisos: Array.isArray(payload.p) ? payload.p : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getAuthenticatedUser(req) {
+  if (req.session?.authenticated && req.session?.adminUser) {
+    return req.session.adminUser;
+  }
+  return readSignedAuthUser(req);
+}
+
 function isAuthenticated(req) {
-  return Boolean(req.session?.authenticated);
+  return Boolean(getAuthenticatedUser(req));
 }
 
 function requireAuth(req, res, next) {
@@ -273,7 +447,7 @@ function requireAuth(req, res, next) {
 }
 
 function getSessionPermissions(req) {
-  const permissions = req.session?.adminUser?.permisos;
+  const permissions = getAuthenticatedUser(req)?.permisos;
 
   if (Array.isArray(permissions)) {
     return permissions;
@@ -325,13 +499,7 @@ function logUnexpectedError(error) {
 
 async function getCachedPublicPayload(key, loader) {
   if (publicApiCacheTtlMs === 0) {
-    const value = await loader();
-    const json = JSON.stringify(value);
-    return {
-      json,
-      gzip: zlib.gzipSync(json, { level: zlib.constants.Z_BEST_SPEED }),
-      etag: `"json-${crypto.createHash("sha1").update(json).digest("hex")}"`,
-    };
+    return buildPublicJsonPayload(await loader());
   }
 
   const now = Date.now();
@@ -341,28 +509,79 @@ async function getCachedPublicPayload(key, loader) {
     return cached.payload;
   }
 
-  const value = await loader();
-  const json = JSON.stringify(value);
-  const payload = {
-    json,
-    gzip: zlib.gzipSync(json, { level: zlib.constants.Z_BEST_SPEED }),
-    etag: `"json-${crypto.createHash("sha1").update(json).digest("hex")}"`,
-  };
+  // L2 (KV): si el L1 de esta instancia expiro, se intenta recuperar la copia
+  // compartida antes de volver a consultar Apps Script.
+  const cachedJson = await readPublicApiCacheFromKv(key);
+  if (cachedJson) {
+    const payload = buildPublicJsonPayloadFromJson(cachedJson);
+    publicApiCache.set(key, {
+      payload,
+      expiresAt: now + publicApiCacheTtlMs,
+    });
+    return payload;
+  }
 
-  publicApiCache.set(key, {
-    payload,
-    expiresAt: now + publicApiCacheTtlMs,
-  });
-  return payload;
+  try {
+    const json = JSON.stringify(await loader());
+    const payload = buildPublicJsonPayloadFromJson(json);
+    publicApiCache.set(key, {
+      payload,
+      expiresAt: now + publicApiCacheTtlMs,
+    });
+    await writePublicApiCacheToKv(key, json);
+    return payload;
+  } catch (error) {
+    // Apps Script caido o lento: se sirve la ultima copia buena en lugar de
+    // dejar al cliente sin catalogo, siempre dentro del margen de gracia.
+    if (cached && cached.payload && now - cached.expiresAt <= PUBLIC_API_STALE_GRACE_MS) {
+      logUnexpectedError(error);
+      return cached.payload;
+    }
+
+    throw error;
+  }
 }
 
-function clearPublicApiCache(...keys) {
+async function clearPublicApiCache(...keys) {
   if (keys.length === 0) {
+    const known = new Set(publicApiCache.keys());
+    Object.values(PUBLIC_CACHE_ALIASES).forEach((aliases) => aliases.forEach((alias) => known.add(alias)));
     publicApiCache.clear();
+    await deletePublicApiCacheFromKv([...known]);
     return;
   }
 
-  keys.forEach((key) => publicApiCache.delete(key));
+  const targets = new Set();
+  keys.forEach((key) => {
+    publicApiCache.delete(key);
+    targets.add(key);
+    (PUBLIC_CACHE_ALIASES[key] || []).forEach((alias) => {
+      publicApiCache.delete(alias);
+      targets.add(alias);
+    });
+  });
+
+  await deletePublicApiCacheFromKv([...targets]);
+}
+
+async function getCachedAdminProducts() {
+  if (publicApiCacheTtlMs === 0) {
+    return readProducts();
+  }
+
+  const now = Date.now();
+  const cached = publicApiCache.get("admin-products");
+
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const value = await readProducts();
+  publicApiCache.set("admin-products", {
+    value,
+    expiresAt: now + ADMIN_API_CACHE_TTL_MS,
+  });
+  return value;
 }
 
 function setPublicApiCacheHeader(res) {
@@ -406,7 +625,7 @@ function buildAuditEvent(req, { entidad, entidad_id, accion, antes = {}, despues
     accion,
     estado_anterior: antes?.estado || "",
     estado_nuevo: despues?.estado || "",
-    usuario: req.session?.adminUser?.usuario || req.session?.adminUser || adminUser || "admin",
+    usuario: getAuthenticatedUser(req)?.usuario || adminUser || "admin",
     ip: req.ip || req.socket?.remoteAddress || "",
     detalles,
     creado_en: new Date().toISOString(),
@@ -568,6 +787,50 @@ function proofFileToPayload(file) {
   };
 }
 
+// Cuando la operacion vive en D1, los stores no suben archivos: se pide a Apps
+// Script (accion proof.upload) que aloje el comprobante en Drive y devuelva la
+// referencia. Con Apps Script activo esta subida la hace submitProof, por eso
+// esta funcion solo se usa en la ruta alternativa.
+async function uploadProofFileToAppsScript(proofFile) {
+  if (!proofFile) {
+    return null;
+  }
+
+  const endpointUrl = String(runtimeEnv.APPS_SCRIPT_CATALOG_URL || "").trim();
+  const adminToken = String(runtimeEnv.APPS_SCRIPT_ADMIN_TOKEN || "").trim();
+
+  if (!endpointUrl || !adminToken) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(runtimeEnv.APPS_SCRIPT_TIMEOUT_MS || 15000));
+
+  try {
+    const response = await fetch(endpointUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "proof.upload",
+        token: adminToken,
+        proof: proofFile,
+        proof_drive_folder_id: String(runtimeEnv.APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID || "").trim(),
+      }),
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || data.ok === false || !data.file) {
+      throw new Error(data.error || "No se pudo guardar el comprobante en Drive.");
+    }
+
+    return data.file;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function maskValue(value) {
   const text = String(value || "").trim();
 
@@ -588,9 +851,17 @@ async function readProducts() {
     return products.map(normalizeProduct);
   } catch (error) {
     logUnexpectedError(error);
+    if (isWorkerRuntime) {
+      throw error;
+    }
     const products = await localCatalogStore.listProducts();
     return products.map(normalizeProduct);
   }
+}
+
+async function readProductsForD1Import() {
+  const products = await catalogStore.listProducts();
+  return products.map(normalizeProduct);
 }
 
 async function writeProducts(products) {
@@ -673,15 +944,20 @@ async function readInventory() {
 }
 
 async function readProductsWithStock() {
-  const products = await readProducts();
-  const inventory = await readInventory().catch((error) => {
-    logUnexpectedError(error);
-    return [];
-  });
+  // Catalogo e inventario viven en hojas distintas: se piden en paralelo para
+  // no sumar dos viajes completos a Apps Script en la carga de la tienda.
+  const [products, inventory] = await Promise.all([
+    readProducts(),
+    readInventory().catch((error) => {
+      logUnexpectedError(error);
+      return [];
+    }),
+  ]);
+  const countForComponent = createStockCounter(inventory);
 
   return products
     .map((product) => {
-    const stock = getProductStock(product, products, inventory);
+    const stock = getProductStock(product, products, countForComponent);
     const venderSinStock = isSellEnabled(product.vender);
     const available = product.estado === "disponible" && (stock > 0 || venderSinStock);
 
@@ -703,14 +979,14 @@ function isSellEnabled(value) {
   return String(value || "").trim().toLowerCase() === "si";
 }
 
-function getProductStock(product, products, inventory) {
+function getProductStock(product, products, countForComponent) {
   const components = getProductComponents(product, products);
 
   if (components.length === 0) {
     return 0;
   }
 
-  return Math.min(...components.map((component) => countAvailableInventoryForComponent(inventory, component)));
+  return Math.min(...components.map((component) => countForComponent(component)));
 }
 
 function getProductComponents(product, products) {
@@ -741,8 +1017,70 @@ function getProductComponents(product, products) {
   return explicit;
 }
 
-function countAvailableInventoryForComponent(inventory, component) {
-  return inventory.filter((item) => item.estado === "disponible" && inventoryMatchesComponent(item, component, {})).length;
+// Prepara las cuentas disponibles una sola vez (estado + slug) y memoiza el
+// conteo por componente. Antes se recorria todo el inventario con slugify()
+// por cada componente de cada producto; ahora cada componente se calcula una vez.
+function createStockCounter(inventory) {
+  let emptyProductCount = 0;
+  const availableItems = [];
+
+  inventory.forEach((item) => {
+    if (item.estado !== "disponible") {
+      return;
+    }
+
+    const productIdSlug = slugify(item.producto_id);
+    const productNameSlug = slugify(item.producto_nombre);
+
+    if (!productIdSlug && !productNameSlug) {
+      // Una cuenta sin producto cargado es compatible con cualquier componente.
+      emptyProductCount += 1;
+      return;
+    }
+
+    availableItems.push({ productIdSlug, productNameSlug });
+  });
+
+  const memo = new Map();
+
+  return function countForComponent(component) {
+    const componentIdSlug = slugify(component.producto_id);
+    const componentNameSlug = slugify(component.componente_nombre);
+
+    if (!componentIdSlug && !componentNameSlug) {
+      return emptyProductCount;
+    }
+
+    const cacheKey = `${componentIdSlug}\u0000${componentNameSlug}`;
+
+    if (memo.has(cacheKey)) {
+      return memo.get(cacheKey);
+    }
+
+    const targets = [componentIdSlug, componentNameSlug].filter(Boolean);
+    let count = emptyProductCount;
+
+    availableItems.forEach((item) => {
+      if (targets.some((target) => slugMatches(item.productIdSlug, target) || slugMatches(item.productNameSlug, target))) {
+        count += 1;
+      }
+    });
+
+    memo.set(cacheKey, count);
+    return count;
+  };
+}
+
+function slugMatches(valueSlug, targetSlug) {
+  if (!valueSlug || !targetSlug) {
+    return false;
+  }
+
+  return (
+    valueSlug === targetSlug ||
+    (targetSlug.length >= 3 && valueSlug.includes(targetSlug)) ||
+    (valueSlug.length >= 3 && targetSlug.includes(valueSlug))
+  );
 }
 
 async function createInventoryItem(item) {
@@ -1654,16 +1992,16 @@ app.get("/api/configuracion-sitio", async (req, res) => {
 });
 
 app.get("/api/health/config", (_req, res) => {
-  const appsScriptUrl = String(process.env.APPS_SCRIPT_CATALOG_URL || "").trim();
-  const adminToken = String(process.env.APPS_SCRIPT_ADMIN_TOKEN || "").trim();
+  const appsScriptUrl = String(runtimeEnv.APPS_SCRIPT_CATALOG_URL || "").trim();
+  const adminToken = String(runtimeEnv.APPS_SCRIPT_ADMIN_TOKEN || "").trim();
 
   res.json({
     ok: true,
     runtime: {
-      node_env: process.env.NODE_ENV || "",
+      node_env: runtimeEnv.NODE_ENV || "",
       host,
       port,
-      catalog_storage: process.env.CATALOG_STORAGE || "",
+      catalog_storage: runtimeEnv.CATALOG_STORAGE || "",
     },
     apps_script: {
       configured: Boolean(appsScriptUrl && adminToken),
@@ -1758,7 +2096,7 @@ app.put("/api/admin/configuracion-sitio/:id", requirePermission("plantillas"), a
       despues: saved,
       detalles: { nombre: saved.nombre },
     });
-    clearPublicApiCache("site-settings");
+    await clearPublicApiCache("site-settings");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1767,7 +2105,25 @@ app.put("/api/admin/configuracion-sitio/:id", requirePermission("plantillas"), a
 });
 
 app.get("/api/admin/session", (req, res) => {
-  res.json({ authenticated: isAuthenticated(req), user: isAuthenticated(req) ? req.session.adminUser : null });
+  const user = getAuthenticatedUser(req);
+  res.json({ authenticated: Boolean(user), user: user || null });
+});
+
+// No se expone en la interfaz: evita una migracion accidental. Solo un
+// administrador que envie la confirmacion literal puede copiar Sheets a D1.
+app.post("/api/admin/migraciones/d1/importar-sheets", requirePermission("configuracion"), async (req, res) => {
+  if (req.body?.confirmacion !== "IMPORTAR_SHEETS_A_D1") {
+    res.status(400).json({ error: "Confirmacion requerida para importar datos a D1." });
+    return;
+  }
+
+  try {
+    const summary = await d1SheetsImportService.importTableFromSheets(req.body?.table);
+    res.json({ ok: true, summary });
+  } catch (error) {
+    logUnexpectedError(error);
+    res.status(error.statusCode || 500).json({ error: error.message || "No se pudo importar Sheets a D1." });
+  }
 });
 
 app.post("/api/admin/login", loginRateLimit, async (req, res) => {
@@ -1791,6 +2147,13 @@ app.post("/api/admin/login", loginRateLimit, async (req, res) => {
     };
     req.session.authenticated = true;
     req.session.adminUser = sessionUser;
+    res.cookie(signedAuthCookieName, createSignedAuthToken(sessionUser), {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isProduction,
+      maxAge: sessionMaxAgeMs,
+      path: "/",
+    });
     res.json({ ok: true, user: sessionUser });
     return;
   }
@@ -1801,15 +2164,17 @@ app.post("/api/admin/login", loginRateLimit, async (req, res) => {
 app.post("/api/admin/logout", requireAuth, (req, res) => {
   req.session.destroy(() => {
     res.clearCookie("streamhub.sid");
+    res.clearCookie(signedAuthCookieName, { path: "/" });
     res.json({ ok: true });
   });
 });
 
 app.get("/api/admin/productos", requireAuth, async (_req, res) => {
   try {
-    const products = await readProducts();
+    const products = await getCachedAdminProducts();
+    res.setHeader("Cache-Control", "no-store");
     res.json(
-      products.sort((left, right) => {
+      [...products].sort((left, right) => {
         const leftOrder = Number.isFinite(Number(left.orden)) ? Number(left.orden) : 999;
         const rightOrder = Number.isFinite(Number(right.orden)) ? Number(right.orden) : 999;
         return leftOrder - rightOrder || String(left.nombre || "").localeCompare(String(right.nombre || ""));
@@ -1818,6 +2183,38 @@ app.get("/api/admin/productos", requireAuth, async (_req, res) => {
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudo cargar el catalogo." });
+  }
+});
+
+app.get("/api/admin/dashboard-snapshot", requireAuth, async (_req, res) => {
+  try {
+    if (typeof inventoryStore.getDashboardSnapshot === "function") {
+      const snapshot = await inventoryStore.getDashboardSnapshot();
+      res.json({
+        products: snapshot.products.map(normalizeProduct),
+        orders: snapshot.orders.map(normalizeOrder),
+        inventory: snapshot.inventory.map(normalizeInventoryItem),
+        renewals: snapshot.renewals.map(normalizeRenewal),
+        providers: snapshot.providers.map(normalizeProvider),
+        provider_purchases: snapshot.provider_purchases.map(normalizeProviderPurchase),
+        payment_methods: snapshot.payment_methods,
+      });
+      return;
+    }
+
+    const [products, orders, inventory, renewals, providers, providerPurchases, paymentMethods] = await Promise.all([
+      readProducts(),
+      orderStore.listOrders(),
+      readInventory(),
+      readRenewals(),
+      readProviders(),
+      readProviderPurchases(),
+      paymentMethodStore.listMethods(),
+    ]);
+    res.json({ products, orders, inventory, renewals, providers, provider_purchases: providerPurchases, payment_methods: paymentMethods });
+  } catch (error) {
+    logUnexpectedError(error);
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo cargar el resumen operativo." });
   }
 });
 
@@ -1832,7 +2229,7 @@ app.post("/api/admin/productos", requirePermission("productos"), async (req, res
     }
 
     const saved = await createProduct(product);
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.status(201).json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1851,7 +2248,7 @@ app.put("/api/admin/productos/:id", requirePermission("productos"), async (req, 
     }
 
     const saved = await updateProduct(req.params.id, product);
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1862,7 +2259,7 @@ app.put("/api/admin/productos/:id", requirePermission("productos"), async (req, 
 app.delete("/api/admin/productos/:id", requirePermission("productos"), async (req, res) => {
   try {
     await deleteProduct(req.params.id);
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.status(204).end();
   } catch (error) {
     logUnexpectedError(error);
@@ -1889,7 +2286,7 @@ app.post("/api/admin/inventario", requirePermission("inventario"), async (req, r
       despues: item,
       detalles: { producto: item.producto_nombre || item.producto_id, proveedor: item.proveedor },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.status(201).json(item);
   } catch (error) {
     logUnexpectedError(error);
@@ -1918,7 +2315,7 @@ async function handleBulkInventoryUpdate(req, res) {
     });
 
     if (updatedItems.length > 0) {
-      clearPublicApiCache("products-with-stock");
+      await clearPublicApiCache("products-with-stock");
     }
     res.json({ updated: updatedItems.length, items: updatedItems });
   } catch (error) {
@@ -1950,7 +2347,7 @@ app.put("/api/admin/inventario/:id", requirePermission("inventario"), async (req
       despues: saved,
       detalles: { producto: saved.producto_nombre || saved.producto_id, proveedor: saved.proveedor },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1970,7 +2367,7 @@ app.post("/api/admin/inventario/:id/liberar", requirePermission("inventario"), a
       despues: saved,
       detalles: { pedido_id: before.pedido_id || "" },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -1990,7 +2387,7 @@ app.put("/api/admin/inventario/:id/renovar", requirePermission("inventario"), as
       despues: saved,
       detalles: { vencimiento_anterior: before.fecha_vencimiento_cliente || "", vencimiento_nuevo: saved.fecha_vencimiento_cliente || "" },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(saved);
   } catch (error) {
     logUnexpectedError(error);
@@ -2074,6 +2471,22 @@ app.post("/api/admin/renovaciones/:id/confirmar", requirePermission("renovacione
       if (savedRenewalProof?.comprobante_notas) {
         payload.comprobante_notas = savedRenewalProof.comprobante_notas;
       }
+    } else if (proofFile) {
+      const uploadedProof = await uploadProofFileToAppsScript(proofFile).catch((error) => {
+        logUnexpectedError(error);
+        return null;
+      });
+
+      if (uploadedProof?.url) {
+        payload.comprobante_url = uploadedProof.url;
+      }
+
+      payload.comprobante_notas = [
+        payload.comprobante_notas,
+        uploadedProof ? `Archivo: ${uploadedProof.nombre}` : `Archivo recibido localmente: ${proofFile.nombre}`,
+      ]
+        .filter(Boolean)
+        .join(" | ");
     }
 
     const result = await confirmRenewal(req.params.id, payload);
@@ -2157,7 +2570,7 @@ app.post("/api/admin/compras-proveedor", requirePermission("proveedores"), async
       detalles: { proveedor: purchase.proveedor_nombre || purchase.proveedor_id, cantidad: purchase.cantidad, inventario_generado: purchase.inventario_generado || 0 },
     });
     if (Number(purchase.inventario_generado || 0) > 0) {
-      clearPublicApiCache("products-with-stock");
+      await clearPublicApiCache("products-with-stock");
     }
     res.status(201).json(purchase);
   } catch (error) {
@@ -2179,7 +2592,7 @@ app.put("/api/admin/compras-proveedor/:id", requirePermission("proveedores"), as
       detalles: { proveedor: purchase.proveedor_nombre || purchase.proveedor_id, cantidad: purchase.cantidad, inventario_generado: purchase.inventario_generado || 0 },
     });
     if (Number(purchase.inventario_generado || 0) > 0 || before.estado !== purchase.estado) {
-      clearPublicApiCache("products-with-stock");
+      await clearPublicApiCache("products-with-stock");
     }
     res.json(purchase);
   } catch (error) {
@@ -2398,16 +2811,23 @@ app.post("/api/pedidos/:id/comprobante", proofRateLimit, handleProofUpload, asyn
       return;
     }
 
-    const order =
-      typeof orderStore.submitProof === "function"
-        ? await orderStore.submitProof(req.params.id, patch)
-        : await orderStore.updateOrder(req.params.id, {
-            ...patch,
-            comprobante_archivo: undefined,
-            comprobante_notas: [patch.comprobante_notas, proofFile ? `Archivo recibido localmente: ${proofFile.nombre}` : ""]
-              .filter(Boolean)
-              .join(" | "),
-          });
+    let order;
+    if (typeof orderStore.submitProof === "function") {
+      order = await orderStore.submitProof(req.params.id, patch);
+    } else {
+      const uploadedProof = await uploadProofFileToAppsScript(proofFile).catch((error) => {
+        logUnexpectedError(error);
+        return null;
+      });
+      order = await orderStore.updateOrder(req.params.id, {
+        ...patch,
+        comprobante_archivo: undefined,
+        comprobante_url: uploadedProof?.url || "",
+        comprobante_notas: [patch.comprobante_notas, uploadedProof ? `Archivo: ${uploadedProof.nombre}` : proofFile ? `Archivo recibido localmente: ${proofFile.nombre}` : ""]
+          .filter(Boolean)
+          .join(" | "),
+      });
+    }
     res.json(order);
   } catch (error) {
     logUnexpectedError(error);
@@ -2450,17 +2870,24 @@ app.post("/api/admin/pedidos", requirePermission("compras"), handleProofUpload, 
         return;
       }
 
-      savedOrder = normalizeOrder(
-        typeof orderStore.submitProof === "function"
-          ? await orderStore.submitProof(order.pedido_id, proofPatch)
-          : await orderStore.updateOrder(order.pedido_id, {
-              ...proofPatch,
-              comprobante_archivo: undefined,
-              comprobante_notas: [proofPatch.comprobante_notas, proofFile ? `Archivo recibido localmente: ${proofFile.nombre}` : ""]
-                .filter(Boolean)
-                .join(" | "),
-            })
-      );
+      if (typeof orderStore.submitProof === "function") {
+        savedOrder = normalizeOrder(await orderStore.submitProof(order.pedido_id, proofPatch));
+      } else {
+        const uploadedProof = await uploadProofFileToAppsScript(proofFile).catch((error) => {
+          logUnexpectedError(error);
+          return null;
+        });
+        savedOrder = normalizeOrder(
+          await orderStore.updateOrder(order.pedido_id, {
+            ...proofPatch,
+            comprobante_archivo: undefined,
+            comprobante_url: uploadedProof?.url || "",
+            comprobante_notas: [proofPatch.comprobante_notas, uploadedProof ? `Archivo: ${uploadedProof.nombre}` : proofFile ? `Archivo recibido localmente: ${proofFile.nombre}` : ""]
+              .filter(Boolean)
+              .join(" | "),
+          })
+        );
+      }
 
       if (requestedStatus === "pagado") {
         savedOrder = normalizeOrder(
@@ -2545,7 +2972,7 @@ app.post("/api/admin/pedidos/:id/asignar-inventario", requirePermission("compras
         asignaciones: Array.isArray(result.order.asignaciones_inventario) ? result.order.asignaciones_inventario.length : 0,
       },
     });
-    clearPublicApiCache("products-with-stock");
+    await clearPublicApiCache("products-with-stock");
     res.json(result);
   } catch (error) {
     logUnexpectedError(error);

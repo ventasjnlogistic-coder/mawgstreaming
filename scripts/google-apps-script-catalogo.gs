@@ -12,6 +12,36 @@ const ADMIN_TOKEN = "cambia-este-token-largo";
 const PROOF_DRIVE_FOLDER_ID = "cambia-este-id-de-carpeta-drive";
 const PROOF_FILE_PUBLIC_LINK = false;
 const SPREADSHEET_ID = "cambia-este-id-de-tu-spreadsheet";
+const READ_CACHE_TTL_SECONDS = 180;
+const READ_CACHE_KEYS = ["products", "orders", "inventory", "renewals", "payment_methods", "templates", "site_settings", "providers", "provider_purchases"];
+// Cada escritura invalida solo las hojas que realmente cambia, en lugar de
+// borrar todo el cache y forzar re-lecturas completas de Sheets.
+const READ_CACHE_KEYS_BY_ACTION = {
+  create: ["products"],
+  update: ["products"],
+  delete: ["products"],
+  replace: ["products"],
+  "orders.create": ["orders"],
+  "orders.proof": ["orders"],
+  "orders.update": ["orders"],
+  "inventory.create": ["inventory"],
+  "inventory.update": ["inventory"],
+  "inventory.bulkupdate": ["inventory"],
+  "inventory.assign": ["inventory", "orders"],
+  "inventory.assignmany": ["inventory", "orders"],
+  "renewals.create": ["renewals"],
+  "renewals.update": ["renewals"],
+  "renewals.proof": ["renewals", "inventory", "orders"],
+  "paymentmethods.create": ["payment_methods"],
+  "paymentmethods.update": ["payment_methods"],
+  "paymentmethods.delete": ["payment_methods"],
+  "templates.update": ["templates"],
+  "sitesettings.update": ["site_settings"],
+  "providers.create": ["providers"],
+  "providers.update": ["providers"],
+  "providerpurchases.create": ["provider_purchases", "inventory"],
+  "providerpurchases.update": ["provider_purchases", "inventory"],
+};
 const DEFAULT_DELIVERY_TEMPLATE = [
   ":estrella: *MAWG Streaming te da la bienvenida*",
   "",
@@ -168,6 +198,7 @@ const PROVIDER_PURCHASE_TEXT_FIELDS = [
 ];
 const PROVIDER_TEXT_FIELDS = ["contacto"];
 const PAYMENT_METHOD_TEXT_FIELDS = ["numero", "cci"];
+const ORDER_TEXT_FIELDS = ["cliente_contacto", "comprobante_referencia"];
 const RENEWAL_TEXT_FIELDS = ["cliente_contacto", "comprobante_referencia"];
 const DEFAULT_PAYMENT_METHODS = [
   ["yape", "Yape", "billetera", "Eduardo Leoncio Lujan Romero", "913344874", "", "", "assets/images/pago.png", "Escanea el QR o usa el numero visible. Luego adjunta tu comprobante para validarlo.", "activo", 1],
@@ -248,7 +279,7 @@ function doGet(e) {
       return jsonResponse({ ok: false, error: "Accion no soportada." });
     }
 
-    return jsonResponse({ ok: true, products: listProducts_() });
+    return jsonResponse({ ok: true, products: getCachedRead_("products", listProducts_) });
   } catch (error) {
     return jsonResponse({ ok: false, error: error.message });
   }
@@ -258,6 +289,10 @@ function doPost(e) {
   try {
     const payload = parsePayload_(e);
     const action = String(payload.action || "").toLowerCase();
+
+    // No se mantienen lecturas obsoletas despues de crear, editar o eliminar.
+    // Se invalida solo la entidad afectada; las acciones de lectura no tocan cache.
+    invalidateReadCache_(READ_CACHE_KEYS_BY_ACTION[action]);
 
     if (action === "orders.create") {
       return jsonResponse({ ok: true, order: createOrder_(payload.order || {}) });
@@ -274,12 +309,27 @@ function doPost(e) {
       });
     }
 
+    if (action === "proof.upload") {
+      if (!isValidToken_(payload.token)) {
+        return jsonResponse({ ok: false, error: "Token de administracion invalido." });
+      }
+
+      return jsonResponse({
+        ok: true,
+        file: uploadProofFile_(payload.proof || {}, payload.proof_drive_folder_id),
+      });
+    }
+
     if (action === "users.auth") {
       return jsonResponse(authenticateAdminUser_(payload.usuario, payload.password));
     }
 
     if (!isValidToken_(payload.token)) {
       return jsonResponse({ ok: false, error: "Token de administracion invalido." });
+    }
+
+    if (action === "dashboard.snapshot") {
+      return jsonResponse({ ok: true, dashboard: getDashboardSnapshot_() });
     }
 
     if (action === "create") {
@@ -301,7 +351,7 @@ function doPost(e) {
     }
 
     if (action === "orders.list") {
-      return jsonResponse({ ok: true, orders: listOrders_() });
+      return jsonResponse({ ok: true, orders: getCachedRead_("orders", listOrders_) });
     }
 
     if (action === "orders.update") {
@@ -309,7 +359,7 @@ function doPost(e) {
     }
 
     if (action === "inventory.list") {
-      return jsonResponse({ ok: true, inventory: listInventory_() });
+      return jsonResponse({ ok: true, inventory: getCachedRead_("inventory", listInventory_) });
     }
 
     if (action === "inventory.create") {
@@ -333,7 +383,7 @@ function doPost(e) {
     }
 
     if (action === "renewals.list") {
-      return jsonResponse({ ok: true, renewals: listRenewals_() });
+      return jsonResponse({ ok: true, renewals: getCachedRead_("renewals", listRenewals_) });
     }
 
     if (action === "renewals.create") {
@@ -352,7 +402,7 @@ function doPost(e) {
     }
 
     if (action === "paymentmethods.list") {
-      return jsonResponse({ ok: true, payment_methods: listPaymentMethods_() });
+      return jsonResponse({ ok: true, payment_methods: getCachedRead_("payment_methods", listPaymentMethods_) });
     }
 
     if (action === "paymentmethods.create") {
@@ -369,7 +419,7 @@ function doPost(e) {
     }
 
     if (action === "templates.list") {
-      return jsonResponse({ ok: true, templates: listMessageTemplates_() });
+      return jsonResponse({ ok: true, templates: getCachedRead_("templates", listMessageTemplates_) });
     }
 
     if (action === "templates.update") {
@@ -377,7 +427,7 @@ function doPost(e) {
     }
 
     if (action === "sitesettings.list") {
-      return jsonResponse({ ok: true, site_settings: listSiteSettings_() });
+      return jsonResponse({ ok: true, site_settings: getCachedRead_("site_settings", listSiteSettings_) });
     }
 
     if (action === "sitesettings.update") {
@@ -385,7 +435,7 @@ function doPost(e) {
     }
 
     if (action === "providers.list") {
-      return jsonResponse({ ok: true, providers: listProviders_() });
+      return jsonResponse({ ok: true, providers: getCachedRead_("providers", listProviders_) });
     }
 
     if (action === "providers.create") {
@@ -397,7 +447,7 @@ function doPost(e) {
     }
 
     if (action === "providerpurchases.list") {
-      return jsonResponse({ ok: true, provider_purchases: listProviderPurchases_() });
+      return jsonResponse({ ok: true, provider_purchases: getCachedRead_("provider_purchases", listProviderPurchases_) });
     }
 
     if (action === "providerpurchases.create") {
@@ -414,12 +464,68 @@ function doPost(e) {
   }
 }
 
+function getDashboardSnapshot_() {
+  return {
+    products: getCachedRead_("products", listProducts_),
+    orders: getCachedRead_("orders", listOrders_),
+    inventory: getCachedRead_("inventory", listInventory_),
+    renewals: getCachedRead_("renewals", listRenewals_),
+    providers: getCachedRead_("providers", listProviders_),
+    provider_purchases: getCachedRead_("provider_purchases", listProviderPurchases_),
+    payment_methods: getCachedRead_("payment_methods", listPaymentMethods_),
+  };
+}
+
 function parsePayload_(e) {
   try {
     return JSON.parse(e.postData.contents || "{}");
   } catch (error) {
     return {};
   }
+}
+
+function getCachedRead_(key, loader) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "mawg:" + key;
+  const cached = cache.get(cacheKey);
+
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (error) {
+      cache.remove(cacheKey);
+    }
+  }
+
+  const value = loader();
+
+  try {
+    const serialized = JSON.stringify(value);
+    // CacheService limita cada valor a 100 KB; los listados grandes se sirven
+    // normalmente y simplemente no se cachean.
+    if (serialized.length <= 90000) {
+      cache.put(cacheKey, serialized, READ_CACHE_TTL_SECONDS);
+    }
+  } catch (error) {
+    // El cache es opcional y nunca debe impedir una lectura valida.
+  }
+
+  return value;
+}
+
+function invalidateReadCache_(keys) {
+  const targets = Array.isArray(keys) && keys.length > 0 ? keys : [];
+
+  if (targets.length === 0) {
+    // Sin entidad identificada no se toca el cache: evita borrados masivos
+    // causados por acciones nuevas o desconocidas.
+    return;
+  }
+
+  const cache = CacheService.getScriptCache();
+  targets.forEach(function (key) {
+    cache.remove("mawg:" + key);
+  });
 }
 
 function isValidToken_(token) {
@@ -461,7 +567,6 @@ function getRenewalsSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(RENEWALS_SHEET_NAME) || spreadsheet.insertSheet(RENEWALS_SHEET_NAME);
   ensureSpecificHeaders_(sheet, RENEWAL_HEADERS);
-  ensureTextColumns_(sheet, RENEWAL_HEADERS, RENEWAL_TEXT_FIELDS);
   return sheet;
 }
 
@@ -469,7 +574,6 @@ function getPaymentMethodsSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(PAYMENT_METHODS_SHEET_NAME) || spreadsheet.insertSheet(PAYMENT_METHODS_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PAYMENT_METHOD_HEADERS);
-  ensureTextColumns_(sheet, PAYMENT_METHOD_HEADERS, PAYMENT_METHOD_TEXT_FIELDS);
   seedDefaultPaymentMethods_(sheet);
   return sheet;
 }
@@ -502,7 +606,6 @@ function getProvidersSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(PROVIDERS_SHEET_NAME) || spreadsheet.insertSheet(PROVIDERS_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PROVIDER_HEADERS);
-  ensureTextColumns_(sheet, PROVIDER_HEADERS, PROVIDER_TEXT_FIELDS);
   return sheet;
 }
 
@@ -511,7 +614,6 @@ function getProviderPurchasesSheet_() {
   const sheet = spreadsheet.getSheetByName(PROVIDER_PURCHASES_SHEET_NAME) || spreadsheet.insertSheet(PROVIDER_PURCHASES_SHEET_NAME);
   ensureSpecificHeaders_(sheet, PROVIDER_PURCHASE_HEADERS);
   ensureColumnsByName_(sheet, PROVIDER_PURCHASE_HEADERS);
-  ensureTextColumns_(sheet, PROVIDER_PURCHASE_HEADERS, PROVIDER_PURCHASE_TEXT_FIELDS);
   return sheet;
 }
 
@@ -1007,7 +1109,9 @@ function createOrder_(order) {
     throw new Error("Ya existe un pedido con ese ID.");
   }
 
-  sheet.appendRow(orderToRow_(normalized));
+  const nextRow = sheet.getLastRow() + 1;
+  formatTextRow_(sheet, ORDER_HEADERS, ORDER_TEXT_FIELDS, nextRow);
+  sheet.getRange(nextRow, 1, 1, ORDER_HEADERS.length).setValues([orderToRow_(normalized)]);
   return normalized;
 }
 
@@ -1050,11 +1154,19 @@ function submitOrderProof_(id, proof, proofDriveFolderId) {
   );
 
   validateProof_(updated);
+  formatTextRow_(sheet, ORDER_HEADERS, ORDER_TEXT_FIELDS, row);
   sheet.getRange(row, 1, 1, ORDER_HEADERS.length).setValues([orderToRow_(updated)]);
   return updated;
 }
 
 function saveProofFile_(orderId, filePayload, proofDriveFolderId) {
+  return uploadProofFile_(filePayload, proofDriveFolderId, "comprobante-" + sanitizeFileName_(orderId) + "-");
+}
+
+// Sube solo el archivo a Drive y devuelve la referencia. No toca ninguna hoja:
+// lo usa el Worker cuando la operacion vive en D1 y solo necesita alojar el
+// comprobante (accion proof.upload).
+function uploadProofFile_(filePayload, proofDriveFolderId, namePrefix) {
   const folderId = String(proofDriveFolderId || PROOF_DRIVE_FOLDER_ID || "").trim();
 
   if (!folderId || folderId === "cambia-este-id-de-carpeta-drive") {
@@ -1069,7 +1181,7 @@ function saveProofFile_(orderId, filePayload, proofDriveFolderId) {
   const originalName = sanitizeFileName_(filePayload.nombre || "comprobante");
   const mimeType = String(filePayload.tipo || "application/octet-stream");
   const bytes = Utilities.base64Decode(String(filePayload.contenido_base64));
-  const blob = Utilities.newBlob(bytes, mimeType, "comprobante-" + sanitizeFileName_(orderId) + "-" + originalName);
+  const blob = Utilities.newBlob(bytes, mimeType, String(namePrefix || "") + originalName);
   const driveFile = folder.createFile(blob);
 
   if (PROOF_FILE_PUBLIC_LINK) {
@@ -1617,37 +1729,40 @@ function createInventoryFromProviderPurchase_(purchase) {
     return item.compra_id === purchase.compra_id;
   }).length;
   var missingCount = Math.max(quantity - existingCount, 0);
+
+  if (missingCount === 0) {
+    return [];
+  }
+
   var provider = listProviders_().find(function (entry) {
     return entry.proveedor_id === purchase.proveedor_id;
   });
-  var created = [];
+  var itemsToCreate = [];
 
   for (var index = 0; index < missingCount; index += 1) {
-    created.push(
-      createInventoryItem_({
-        compra_id: purchase.compra_id,
-        producto_id: purchase.producto_id,
-        producto_nombre: purchase.producto_nombre,
-        proveedor: purchase.proveedor_nombre || (provider && provider.nombre) || purchase.proveedor_id,
-        celular_proveedor: (provider && provider.contacto) || "",
-        costo_proveedor: purchase.costo_unitario,
-        cuenta_usuario: purchase.cuenta_usuario,
-        cuenta_clave: purchase.cuenta_clave,
-        url_producto: purchase.url_producto,
-        link_bot: purchase.link_bot,
-        usuario_bot: purchase.usuario_bot,
-        contrasena_bot: purchase.contrasena_bot,
-        referencia_compra: purchase.referencia_pago || purchase.compra_id,
-        fecha_compra: purchase.fecha_compra,
-        fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
-        estado: "reservado",
-        estado_control: "Generado desde compra recibida",
-        notas: [purchase.notas, "Compra proveedor: " + purchase.compra_id].filter(Boolean).join(" | "),
-      })
-    );
+    itemsToCreate.push({
+      compra_id: purchase.compra_id,
+      producto_id: purchase.producto_id,
+      producto_nombre: purchase.producto_nombre,
+      proveedor: purchase.proveedor_nombre || (provider && provider.nombre) || purchase.proveedor_id,
+      celular_proveedor: (provider && provider.contacto) || "",
+      costo_proveedor: purchase.costo_unitario,
+      cuenta_usuario: purchase.cuenta_usuario,
+      cuenta_clave: purchase.cuenta_clave,
+      url_producto: purchase.url_producto,
+      link_bot: purchase.link_bot,
+      usuario_bot: purchase.usuario_bot,
+      contrasena_bot: purchase.contrasena_bot,
+      referencia_compra: purchase.referencia_pago || purchase.compra_id,
+      fecha_compra: purchase.fecha_compra,
+      fecha_vencimiento_proveedor: purchase.fecha_vencimiento_proveedor,
+      estado: "reservado",
+      estado_control: "Generado desde compra recibida",
+      notas: [purchase.notas, "Compra proveedor: " + purchase.compra_id].filter(Boolean).join(" | "),
+    });
   }
 
-  return created;
+  return createInventoryItemsBatch_(itemsToCreate);
 }
 
 function rowToProviderPurchase_(row) {
@@ -1739,6 +1854,7 @@ function updateOrder_(id, order) {
     })
   );
 
+  formatTextRow_(sheet, ORDER_HEADERS, ORDER_TEXT_FIELDS, row);
   sheet.getRange(row, 1, 1, ORDER_HEADERS.length).setValues([orderToRow_(updated)]);
   return updated;
 }
@@ -1764,7 +1880,7 @@ function listInventory_() {
 
 function createInventoryItem_(item) {
   const normalized = normalizeInventoryItem_(item);
-  const sheet = getInventorySheet_({ formatText: true });
+  const sheet = getInventorySheet_();
 
   validateInventoryItem_(normalized);
 
@@ -1778,8 +1894,55 @@ function createInventoryItem_(item) {
   return normalized;
 }
 
+// Crea varias cuentas en una sola escritura. Antes se llamaba a
+// createInventoryItem_ una vez por cuenta (appendRow + formato + validacion +
+// lectura de la hoja completa por cada item), lo que hacia la operacion O(N).
+function createInventoryItemsBatch_(items) {
+  const normalizedList = (items || []).map(normalizeInventoryItem_);
+
+  if (normalizedList.length === 0) {
+    return [];
+  }
+
+  normalizedList.forEach(validateInventoryItem_);
+
+  const sheet = getInventorySheet_();
+  const lastRow = sheet.getLastRow();
+  const startRow = lastRow + 1;
+
+  if (lastRow >= 2) {
+    const existingIds = new Set(
+      sheet
+        .getRange(2, 1, lastRow - 1, 1)
+        .getValues()
+        .map(function (row) {
+          return String(row[0]);
+        })
+    );
+
+    normalizedList.forEach(function (item) {
+      if (existingIds.has(String(item.inventario_id))) {
+        throw new Error("Ya existe una cuenta de inventario con ese ID.");
+      }
+    });
+  }
+
+  const rows = normalizedList.map(inventoryItemToRow_);
+
+  INVENTORY_TEXT_FIELDS.forEach(function (field) {
+    const column = INVENTORY_HEADERS.indexOf(field) + 1;
+    if (column > 0) {
+      sheet.getRange(startRow, column, rows.length, 1).setNumberFormat("@");
+    }
+  });
+
+  sheet.getRange(startRow, 1, rows.length, INVENTORY_HEADERS.length).setValues(rows);
+
+  return normalizedList;
+}
+
 function updateInventoryItem_(id, item) {
-  const sheet = getInventorySheet_({ formatText: true });
+  const sheet = getInventorySheet_();
   const row = findRowById_(sheet, id);
 
   if (row < 1) {
@@ -1801,7 +1964,7 @@ function updateInventoryItem_(id, item) {
 }
 
 function bulkUpdateInventoryItems_(filters, patch) {
-  const sheet = getInventorySheet_({ formatText: true });
+  const sheet = getInventorySheet_();
   const allowedFields = [
     "cuenta_usuario",
     "cuenta_clave",
@@ -1872,7 +2035,7 @@ function bulkUpdateInventoryItems_(filters, patch) {
 function normalizeBulkInventoryFilters_(filters) {
   return {
     producto: String(filters.producto || "").trim().toLowerCase(),
-    cuenta_usuario: String(filters.cuenta_usuario || "").trim().toLowerCase(),
+    cuenta_usuario: String(filters.cuenta_usuario || "").trim(),
     proveedor: String(filters.proveedor || "").trim().toLowerCase(),
     estado: String(filters.estado || "").trim(),
   };
@@ -1893,14 +2056,32 @@ function normalizeBulkInventoryPatch_(patch, allowedFields) {
 function inventoryMatchesBulkFilters_(item, filters) {
   const productId = String(item.producto_id || "").toLowerCase();
   const productName = String(item.producto_nombre || "").toLowerCase();
-  const accountUser = String(item.cuenta_usuario || "").toLowerCase();
   const provider = String(item.proveedor || "").toLowerCase();
   const matchesProduct = !filters.producto || productId.indexOf(filters.producto) >= 0 || productName.indexOf(filters.producto) >= 0;
-  const matchesUser = !filters.cuenta_usuario || accountUser.indexOf(filters.cuenta_usuario) >= 0;
+  const matchesUser = accountUserMatchesFilter_(item.cuenta_usuario, filters.cuenta_usuario);
   const matchesProvider = !filters.proveedor || provider.indexOf(filters.proveedor) >= 0;
   const matchesStatus = !filters.estado || item.estado === filters.estado;
 
   return matchesProduct && matchesUser && matchesProvider && matchesStatus;
+}
+
+function normalizeAccountUser_(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, "").trim();
+}
+
+function accountUserMatchesFilter_(value, filter) {
+  const normalizedValue = normalizeAccountUser_(value);
+  const normalizedFilter = normalizeAccountUser_(filter);
+
+  if (!normalizedFilter) {
+    return true;
+  }
+
+  if (normalizedFilter.indexOf("@") >= 0) {
+    return normalizedValue === normalizedFilter;
+  }
+
+  return normalizedValue.indexOf(normalizedFilter) >= 0;
 }
 
 function formatInventoryTextRow_(sheet, row) {
@@ -1942,7 +2123,7 @@ function assignInventoryToOrder_(orderId, inventoryId, assignment) {
 
 function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
   const ordersSheet = getOrdersSheet_();
-  const inventorySheet = getInventorySheet_({ formatText: true });
+  const inventorySheet = getInventorySheet_();
   const orderRow = findOrderRowById_(ordersSheet, orderId);
   const now = new Date().toISOString();
 
@@ -2091,6 +2272,7 @@ function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
   itemPairs.forEach(function (pair, index) {
     inventorySheet.getRange(pair.row, 1, 1, INVENTORY_HEADERS.length).setValues([inventoryItemToRow_(updatedItems[index])]);
   });
+  formatTextRow_(ordersSheet, ORDER_HEADERS, ORDER_TEXT_FIELDS, orderRow);
   ordersSheet.getRange(orderRow, 1, 1, ORDER_HEADERS.length).setValues([orderToRow_(updatedOrder)]);
 
   return { ok: true, order: updatedOrder, item: updatedItems[0], items: updatedItems };

@@ -178,8 +178,15 @@ const dirtyState = document.querySelector("#dirtyState");
 const formTitle = document.querySelector("#formTitle");
 const jsonOutput = document.querySelector("#jsonOutput");
 const adminStatus = document.querySelector("#adminStatus");
+const adminLoadStatus = document.querySelector("#adminLoadStatus");
 const statusToast = document.createElement("div");
 let statusToastTimer = null;
+const adminReadCache = new Map();
+const moduleLoadState = new Map();
+const ADMIN_READ_CACHE_TTL_MS = 15 * 1000;
+const ADMIN_READ_STALE_TTL_MS = 2 * 60 * 1000;
+const ADMIN_LAST_VIEW_STORAGE_KEY = "mawg.admin.lastView";
+let adminInitialLoadComplete = false;
 
 statusToast.className = "admin-toast";
 statusToast.setAttribute("role", "status");
@@ -278,6 +285,8 @@ const siteSettingCount = document.querySelector("#siteSettingCount");
 const siteSettingForm = document.querySelector("#siteSettingForm");
 const siteSettingFormTitle = document.querySelector("#siteSettingFormTitle");
 const loadSiteSettingsButton = document.querySelector("#loadSiteSettingsButton");
+const migrateD1Button = document.querySelector("#migrateD1Button");
+const d1MigrationStatus = document.querySelector("#d1MigrationStatus");
 const adminViews = document.querySelectorAll("[data-admin-view]");
 const adminViewLinks = document.querySelectorAll("[data-admin-target]");
 const adminViewActions = document.querySelectorAll("[data-admin-action]");
@@ -423,6 +432,14 @@ function getAllowedAdminView(viewName) {
 function setAdminView(viewName, updateHash = true) {
   const nextView = getAllowedAdminView(viewName);
 
+  // Solo se guarda el nombre de la pantalla; nunca datos operativos ni
+  // credenciales. Asi el login puede retomar Inventario sin iniciar Dashboard.
+  try {
+    window.sessionStorage.setItem(ADMIN_LAST_VIEW_STORAGE_KEY, nextView);
+  } catch {
+    // El panel sigue funcionando si sessionStorage no esta disponible.
+  }
+
   adminViews.forEach((view) => {
     view.hidden = view.dataset.adminView !== nextView;
   });
@@ -449,6 +466,10 @@ function setAdminView(viewName, updateHash = true) {
 
   if (updateHash && window.location.hash !== `#${nextView}`) {
     history.replaceState(null, "", `#${nextView}`);
+  }
+
+  if (adminInitialLoadComplete) {
+    ensureAdminViewModules(nextView);
   }
 }
 
@@ -765,31 +786,83 @@ function normalizeSiteSetting(setting = {}) {
 }
 
 async function apiRequest(url, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const isAdminRead = method === "GET" && String(url).startsWith("/api/admin/") && !String(url).includes("/session");
+  const cacheKey = isAdminRead ? String(url) : "";
+  const cached = cacheKey ? adminReadCache.get(cacheKey) : null;
+  const now = Date.now();
+
+  if (method !== "GET") {
+    adminReadCache.clear();
+  }
+
+  if (cached && cached.freshUntil > now && !options.forceRefresh) {
+    return cached.value;
+  }
+
   const isFormData = options.body instanceof FormData;
-  const response = await fetch(url, {
-    credentials: "same-origin",
-    headers: {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  const attempts = isAdminRead ? 3 : 1;
+  let lastError;
 
-  if (response.status === 401) {
-    window.location.href = "/login.html";
-    throw new Error("Sesion requerida");
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
+
+    try {
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: {
+          ...(isFormData ? {} : { "Content-Type": "application/json" }),
+          ...(options.headers || {}),
+        },
+        ...options,
+        signal: controller.signal,
+      });
+
+      if (response.status === 401) {
+        const returnTo = `${window.location.pathname}${window.location.hash}`;
+        window.location.href = `/login.html?next=${encodeURIComponent(returnTo)}`;
+        throw new Error("Sesion requerida");
+      }
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        const error = new Error(data?.error || `No se pudo completar la operacion. Estado HTTP ${response.status}.`);
+        error.retryable = isAdminRead && (response.status === 429 || response.status >= 500);
+        throw error;
+      }
+
+      if (response.status === 204) {
+        return null;
+      }
+
+      const data = await response.json();
+      if (cacheKey) {
+        adminReadCache.set(cacheKey, {
+          value: data,
+          freshUntil: now + ADMIN_READ_CACHE_TTL_MS,
+          staleUntil: now + ADMIN_READ_STALE_TTL_MS,
+        });
+      }
+      return data;
+    } catch (error) {
+      lastError = error?.name === "AbortError" ? new Error("Google Apps Script demoro demasiado en responder.") : error;
+      const retryable = isAdminRead && (lastError.retryable || lastError.message === "Google Apps Script demoro demasiado en responder." || /fetch failed/i.test(lastError.message));
+      if (!retryable || attempt === attempts - 1) {
+        break;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
 
-  if (!response.ok) {
-    const data = await response.json().catch(() => null);
-    throw new Error(data?.error || `No se pudo completar la operacion. Estado HTTP ${response.status}.`);
+  if (cached && cached.staleUntil > Date.now()) {
+    setStatus("Apps Script esta lento. Se muestran los ultimos datos disponibles; puedes reintentar el modulo.", true);
+    return cached.value;
   }
 
-  if (response.status === 204) {
-    return null;
-  }
-
-  return response.json();
+  throw lastError || new Error("No se pudo completar la operacion.");
 }
 
 function setStatus(message, isError = false) {
@@ -1085,6 +1158,23 @@ function getActiveMessageTemplate(templateId) {
   return messageTemplates.find(
     (template) => String(template.id || "").trim() === targetId && String(template.estado || "").trim().toLowerCase() !== "inactivo"
   ) || null;
+}
+
+// Las alertas se pueden enviar desde Inventario sin haber abierto la vista
+// Plantillas. Cargamos solamente ese recurso antes de construir el mensaje,
+// aprovechando la cache de lecturas para no recargar el panel operativo.
+async function ensureAlertTemplatesLoaded() {
+  if (messageTemplates.length > 0) {
+    return true;
+  }
+
+  try {
+    messageTemplates = (await apiRequest("/api/admin/plantillas")).map(normalizeMessageTemplate);
+    return messageTemplates.length > 0;
+  } catch (error) {
+    setStatus("No se pudieron cargar las plantillas para la alerta. Intenta nuevamente.", true);
+    return false;
+  }
 }
 
 function buildWhatsAppUrl(contact, message) {
@@ -1583,11 +1673,161 @@ function renderReports() {
   renderReportRows(reportInventoryRows, sortReportGroups(groupReportRows(filteredInventory, (row) => row.product)).slice(0, 12), "No hay cuentas no vendidas para costear con los filtros actuales.", 5);
 }
 
-function refreshOperationalData() {
-  return Promise.all([loadProducts(), loadOrders(), loadInventory(), loadSuppliers(), loadRenewals(), loadPaymentMethods(), loadAuditEvents()]).then(() => {
-    renderDashboard();
-    renderReports();
+async function runWithConcurrency(tasks, limit = 2) {
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < tasks.length) {
+      const task = tasks[nextIndex];
+      nextIndex += 1;
+      await task();
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+}
+
+const adminModuleLabels = {
+  productos: "Catalogo",
+  pedidos: "Pedidos",
+  inventario: "Inventario",
+  proveedores: "Proveedores",
+  renovaciones: "Renovaciones",
+  pagos: "Metodos de pago",
+  plantillas: "Plantillas",
+  configuracion: "Configuracion",
+  auditoria: "Auditoria",
+};
+
+function renderModuleLoadState() {
+  if (!adminLoadStatus) {
+    return;
+  }
+
+  // La carga de datos ocurre en segundo plano. Solo ocupamos este espacio si
+  // una consulta fallo; mostrar cada tabla como "cargando" distrae y no ayuda
+  // al usuario a operar el panel.
+  const entries = [...moduleLoadState.entries()].filter(([, state]) => state.status === "error");
+  adminLoadStatus.hidden = entries.length === 0;
+  adminLoadStatus.innerHTML = entries
+    .map(([id, state]) => {
+      const label = adminModuleLabels[id] || id;
+      return `<span class="module-load-item is-error">${escapeHtml(label)} no se cargo. <button type="button" data-retry-module="${escapeHtml(id)}">Reintentar</button></span>`;
+    })
+    .join("");
+}
+
+function setModuleLoadState(id, status) {
+  moduleLoadState.set(id, { status });
+  renderModuleLoadState();
+}
+
+function primeAdminReadCache(url, value) {
+  const now = Date.now();
+  adminReadCache.set(url, {
+    value,
+    freshUntil: now + ADMIN_READ_CACHE_TTL_MS,
+    staleUntil: now + ADMIN_READ_STALE_TTL_MS,
   });
+}
+
+async function loadManagedModule(id, loader, options = {}) {
+  setModuleLoadState(id, "loading");
+  const result = await loader(options);
+  setModuleLoadState(id, result === false ? "error" : "ready");
+  return result;
+}
+
+function loadDashboardModules({ includePaymentMethods = true } = {}) {
+  const modules = [
+    ["productos", loadProducts],
+    ["pedidos", loadOrders],
+    ["inventario", loadInventory],
+    ["proveedores", loadSuppliers],
+    ["renovaciones", loadRenewals],
+  ];
+
+  if (includePaymentMethods) {
+    modules.push(["pagos", loadPaymentMethods]);
+  }
+
+  return runWithConcurrency(
+    modules.map(([id, loader]) => () => loadManagedModule(id, loader)),
+    1
+  );
+}
+
+async function loadDashboardSnapshot() {
+  ["productos", "pedidos", "inventario", "proveedores", "renovaciones", "pagos"].forEach((id) => setModuleLoadState(id, "loading"));
+
+  try {
+    const snapshot = await apiRequest("/api/admin/dashboard-snapshot");
+    primeAdminReadCache("/api/admin/productos", Array.isArray(snapshot.products) ? snapshot.products : []);
+    primeAdminReadCache("/api/admin/pedidos", Array.isArray(snapshot.orders) ? snapshot.orders : []);
+    primeAdminReadCache("/api/admin/inventario", Array.isArray(snapshot.inventory) ? snapshot.inventory : []);
+    primeAdminReadCache("/api/admin/proveedores", Array.isArray(snapshot.providers) ? snapshot.providers : []);
+    primeAdminReadCache("/api/admin/compras-proveedor", Array.isArray(snapshot.provider_purchases) ? snapshot.provider_purchases : []);
+    primeAdminReadCache("/api/admin/renovaciones", Array.isArray(snapshot.renewals) ? snapshot.renewals : []);
+    paymentMethods = (Array.isArray(snapshot.payment_methods) ? snapshot.payment_methods : []).map(normalizePaymentMethod);
+    renderManualSalePaymentMethodOptions();
+    renderRenewalEditor();
+    setModuleLoadState("pagos", "ready");
+    await loadDashboardModules({ includePaymentMethods: false });
+    return true;
+  } catch (error) {
+    setStatus("El resumen rapido no estuvo disponible; se cargaran los modulos por separado.", true);
+    return loadDashboardModules();
+  }
+}
+
+async function loadInitialAdminViewData(viewName) {
+  // El dashboard necesita el conjunto completo para calcular sus indicadores.
+  // En cambio, si el usuario actualiza estando en Inventario, pedir ese
+  // conjunto completo vuelve a consultar Pedidos, Renovaciones y Pagos sin
+  // que la pantalla los use. Cargamos solo las dependencias de Inventario.
+  if (viewName !== "inventario") {
+    return loadDashboardSnapshot();
+  }
+
+  const modules = [
+    ["productos", loadProducts],
+    ["proveedores", loadSuppliers],
+    ["inventario", loadInventory],
+  ];
+
+  return runWithConcurrency(
+    modules.map(([id, loader]) => () => loadManagedModule(id, loader)),
+    1
+  );
+}
+
+function ensureAdminViewModules(viewName) {
+  const moduleByView = {
+    plantillas: ["plantillas"],
+    configuracion: ["configuracion"],
+    auditoria: ["auditoria"],
+  };
+
+  (moduleByView[viewName] || []).forEach((id) => {
+    if (!moduleLoadState.has(id)) {
+      const loader = getAdminModuleLoader(id);
+      if (loader) {
+        loadManagedModule(id, loader);
+      }
+    }
+  });
+}
+
+async function refreshOperationalData() {
+  // Apps Script procesa mal rafagas grandes de lecturas concurrentes. Dos
+  // solicitudes simultaneas mantienen el panel agil sin agotar sus cuotas.
+  await runWithConcurrency(
+    [["productos", loadProducts], ["pedidos", loadOrders], ["inventario", loadInventory], ["proveedores", loadSuppliers], ["renovaciones", loadRenewals], ["pagos", loadPaymentMethods], ["auditoria", loadAuditEvents]].map(
+      ([id, loader]) => () => loadManagedModule(id, loader, { forceRefresh: true })
+    )
+  );
+  renderDashboard();
+  renderReports();
 }
 
 function refreshDashboardData() {
@@ -2436,11 +2676,11 @@ function selectProduct(id) {
   }
 }
 
-async function loadProducts() {
+async function loadProducts(options = {}) {
   setStatus("Cargando catalogo...");
 
   try {
-    const data = await apiRequest("/api/admin/productos");
+    const data = await apiRequest("/api/admin/productos", options);
     products = sortProductsForDisplay(data.map(normalizeProduct));
     selectedId = products[0]?.id || "";
     renderInventoryProductOptions();
@@ -2458,8 +2698,10 @@ async function loadProducts() {
     renderReports();
     markChanged(false);
     setStatus("Catalogo cargado.");
+    return true;
   } catch (error) {
     setStatus(error.message, true);
+    return false;
   }
 }
 
@@ -2621,7 +2863,7 @@ function selectInventoryItem(id) {
   }
 }
 
-async function loadInventory() {
+async function loadInventory(options = {}) {
   if (!inventoryList) {
     return;
   }
@@ -2629,7 +2871,7 @@ async function loadInventory() {
   inventoryList.innerHTML = '<p class="catalog-message">Cargando inventario...</p>';
 
   try {
-    inventoryItems = (await apiRequest("/api/admin/inventario")).map(normalizeInventoryItem);
+    inventoryItems = (await apiRequest("/api/admin/inventario", options)).map(normalizeInventoryItem);
     inventoryItems.sort((left, right) => String(left.producto_nombre || left.producto_id).localeCompare(String(right.producto_nombre || right.producto_id)));
     selectedInventoryId = selectedInventoryId || inventoryItems[0]?.inventario_id || "";
     renderInventoryProductFilterOptions();
@@ -2640,8 +2882,10 @@ async function loadInventory() {
     renderProviderPurchases();
     renderDashboard();
     renderReports();
+    return true;
   } catch (error) {
     inventoryList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -3088,7 +3332,7 @@ async function saveProviderPurchase(purchase, { forceUpdate = false } = {}) {
   return saved;
 }
 
-async function loadSuppliers() {
+async function loadSuppliers(options = {}) {
   if (!providerList && !providerPurchaseList) {
     return;
   }
@@ -3099,8 +3343,8 @@ async function loadSuppliers() {
 
   try {
     const [providerRows, purchaseRows] = await Promise.all([
-      apiRequest("/api/admin/proveedores"),
-      apiRequest("/api/admin/compras-proveedor"),
+      apiRequest("/api/admin/proveedores", options),
+      apiRequest("/api/admin/compras-proveedor", options),
     ]);
     providers = providerRows.map(normalizeProvider).sort((left, right) => left.nombre.localeCompare(right.nombre));
     providerPurchases = purchaseRows.map(normalizeProviderPurchase);
@@ -3113,10 +3357,12 @@ async function loadSuppliers() {
     fillProviderPurchaseForm(providerPurchases.find((purchase) => purchase.compra_id === selectedProviderPurchaseId) || defaultProviderPurchase);
     renderDashboard();
     renderReports();
+    return true;
   } catch (error) {
     if (providerList) {
       providerList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
     }
+    return false;
   }
 }
 
@@ -3298,7 +3544,7 @@ function renderRenewalEditor() {
   `;
 }
 
-async function loadRenewals() {
+async function loadRenewals(options = {}) {
   if (!renewalList) {
     return;
   }
@@ -3306,22 +3552,25 @@ async function loadRenewals() {
   renewalList.innerHTML = '<p class="catalog-message">Cargando renovaciones...</p>';
 
   try {
-    renewals = (await apiRequest("/api/admin/renovaciones")).map(normalizeRenewal);
+    renewals = (await apiRequest("/api/admin/renovaciones", options)).map(normalizeRenewal);
     renewals.sort((left, right) => String(right.creado_en || "").localeCompare(String(left.creado_en || "")));
     selectedRenewalId = selectedRenewalId || renewals[0]?.renovacion_id || "";
     renderRenewals();
     renderDashboard();
     renderReports();
+    return true;
   } catch (error) {
     renewalList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
-async function loadPaymentMethods() {
+async function loadPaymentMethods(options = {}) {
   try {
-    paymentMethods = (await apiRequest("/api/metodos-pago")).map(normalizePaymentMethod);
+    paymentMethods = (await apiRequest("/api/metodos-pago", options)).map(normalizePaymentMethod);
     renderManualSalePaymentMethodOptions();
     renderRenewalEditor();
+    return true;
   } catch {
     paymentMethods = [
       { id: "yape", nombre: "Yape", estado: "activo" },
@@ -3330,6 +3579,7 @@ async function loadPaymentMethods() {
     ];
     renderManualSalePaymentMethodOptions();
     renderRenewalEditor();
+    return false;
   }
 }
 
@@ -3380,7 +3630,7 @@ function fillTemplateForm(template) {
   renderTemplateList();
 }
 
-async function loadTemplates() {
+async function loadTemplates(options = {}) {
   if (!templateList) {
     return;
   }
@@ -3388,12 +3638,14 @@ async function loadTemplates() {
   templateList.innerHTML = '<p class="catalog-message">Cargando plantillas...</p>';
 
   try {
-    messageTemplates = (await apiRequest("/api/admin/plantillas")).map(normalizeMessageTemplate);
+    messageTemplates = (await apiRequest("/api/admin/plantillas", options)).map(normalizeMessageTemplate);
     selectedTemplateId = selectedTemplateId || messageTemplates[0]?.id || "";
     renderTemplateList();
     fillTemplateForm(messageTemplates.find((template) => template.id === selectedTemplateId) || defaultMessageTemplate);
+    return true;
   } catch (error) {
     templateList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -3471,7 +3723,7 @@ function fillSiteSettingForm(setting) {
   renderSiteSettingList();
 }
 
-async function loadSiteSettings() {
+async function loadSiteSettings(options = {}) {
   if (!siteSettingList) {
     return;
   }
@@ -3479,12 +3731,14 @@ async function loadSiteSettings() {
   siteSettingList.innerHTML = '<p class="catalog-message">Cargando configuracion...</p>';
 
   try {
-    siteSettings = (await apiRequest("/api/admin/configuracion-sitio")).map(normalizeSiteSetting);
+    siteSettings = (await apiRequest("/api/admin/configuracion-sitio", options)).map(normalizeSiteSetting);
     selectedSiteSettingId = selectedSiteSettingId || siteSettings[0]?.id || "";
     renderSiteSettingList();
     fillSiteSettingForm(siteSettings.find((setting) => setting.id === selectedSiteSettingId) || defaultSiteSetting);
+    return true;
   } catch (error) {
     siteSettingList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -3557,7 +3811,7 @@ function renderAuditEvents() {
     .join("");
 }
 
-async function loadAuditEvents() {
+async function loadAuditEvents(options = {}) {
   if (!auditList) {
     return;
   }
@@ -3565,10 +3819,12 @@ async function loadAuditEvents() {
   auditList.innerHTML = '<p class="catalog-message">Cargando auditoria...</p>';
 
   try {
-    auditEvents = await apiRequest("/api/admin/auditoria?limit=100");
+    auditEvents = await apiRequest("/api/admin/auditoria?limit=100", options);
     renderAuditEvents();
+    return true;
   } catch (error) {
     auditList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -3666,7 +3922,9 @@ async function confirmRenewal(form) {
 
   renderRenewals();
   renderInventoryList();
-  await loadOrders();
+  renderOrders();
+  renderDashboard();
+  renderReports();
   setStatus(`Renovacion ${renewalId} confirmada.`);
 
   const confirmationSource = resolveRenewalSource({
@@ -3990,7 +4248,7 @@ function renderOrders() {
     .join("");
 }
 
-async function loadOrders() {
+async function loadOrders(options = {}) {
   if (!orderList) {
     return;
   }
@@ -3998,13 +4256,15 @@ async function loadOrders() {
   orderList.innerHTML = '<p class="catalog-message">Cargando pedidos...</p>';
 
   try {
-    orders = (await apiRequest("/api/admin/pedidos")).map(normalizeInventoryOrder);
+    orders = (await apiRequest("/api/admin/pedidos", options)).map(normalizeInventoryOrder);
     orders.sort((left, right) => String(right.creado_en || "").localeCompare(String(left.creado_en || "")));
     renderOrders();
     renderDashboard();
     renderReports();
+    return true;
   } catch (error) {
     orderList.innerHTML = `<p class="catalog-message">${escapeHtml(error.message)}</p>`;
+    return false;
   }
 }
 
@@ -4230,16 +4490,67 @@ function closeDeleteModal() {
   document.body.classList.remove("modal-open");
 }
 
-document.querySelector("#loadCatalogButton")?.addEventListener("click", loadProducts);
+function getAdminModuleLoader(id) {
+  return {
+    productos: loadProducts,
+    pedidos: loadOrders,
+    inventario: loadInventory,
+    proveedores: loadSuppliers,
+    renovaciones: loadRenewals,
+    pagos: loadPaymentMethods,
+    plantillas: loadTemplates,
+    configuracion: loadSiteSettings,
+    auditoria: loadAuditEvents,
+  }[id];
+}
+
+adminLoadStatus?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-retry-module]");
+  const id = button?.dataset.retryModule;
+  const loader = id ? getAdminModuleLoader(id) : null;
+  if (loader) {
+    loadManagedModule(id, loader, { forceRefresh: true });
+  }
+});
+
+document.querySelector("#loadCatalogButton")?.addEventListener("click", () => loadManagedModule("productos", loadProducts, { forceRefresh: true }));
 loadDashboardButton?.addEventListener("click", refreshDashboardData);
 loadReportsButton?.addEventListener("click", refreshOperationalData);
-loadOrdersButton?.addEventListener("click", loadOrders);
-loadInventoryButton?.addEventListener("click", loadInventory);
-loadSuppliersButton?.addEventListener("click", loadSuppliers);
-loadRenewalsButton?.addEventListener("click", loadRenewals);
-loadTemplatesButton?.addEventListener("click", loadTemplates);
-loadSiteSettingsButton?.addEventListener("click", loadSiteSettings);
-loadAuditButton?.addEventListener("click", loadAuditEvents);
+loadOrdersButton?.addEventListener("click", () => loadManagedModule("pedidos", loadOrders, { forceRefresh: true }));
+loadInventoryButton?.addEventListener("click", () => loadManagedModule("inventario", loadInventory, { forceRefresh: true }));
+loadSuppliersButton?.addEventListener("click", () => loadManagedModule("proveedores", loadSuppliers, { forceRefresh: true }));
+loadRenewalsButton?.addEventListener("click", () => loadManagedModule("renovaciones", loadRenewals, { forceRefresh: true }));
+loadTemplatesButton?.addEventListener("click", () => loadManagedModule("plantillas", loadTemplates, { forceRefresh: true }));
+loadSiteSettingsButton?.addEventListener("click", () => loadManagedModule("configuracion", loadSiteSettings, { forceRefresh: true }));
+migrateD1Button?.addEventListener("click", async () => {
+  if (!window.confirm("Se copiaran los datos actuales de Google Sheets a D1. Sheets y Google Drive no seran modificados. ¿Deseas continuar?")) {
+    return;
+  }
+
+  migrateD1Button.disabled = true;
+  const d1MigrationTables = ["products", "providers", "provider_purchases", "inventory", "orders", "renewals", "payment_methods", "message_templates", "site_settings"];
+  const completed = [];
+  if (d1MigrationStatus) d1MigrationStatus.textContent = "Importando datos a D1...";
+
+  try {
+    for (const table of d1MigrationTables) {
+      if (d1MigrationStatus) d1MigrationStatus.textContent = `Importando ${table} (${completed.length + 1}/${d1MigrationTables.length})...`;
+      const result = await apiRequest("/api/admin/migraciones/d1/importar-sheets", {
+        method: "POST",
+        body: JSON.stringify({ confirmacion: "IMPORTAR_SHEETS_A_D1", table }),
+      });
+      completed.push(`${result.summary?.table}: ${result.summary?.records || 0}`);
+    }
+    if (d1MigrationStatus) d1MigrationStatus.textContent = `Importacion completada. ${completed.join(" | ")}`;
+    setStatus("Datos copiados a D1. Sheets continua siendo la fuente activa.");
+  } catch (error) {
+    if (d1MigrationStatus) d1MigrationStatus.textContent = `Se importaron ${completed.length} tablas. ${error.message}`;
+    setStatus(error.message, true);
+  } finally {
+    migrateD1Button.disabled = false;
+  }
+});
+loadAuditButton?.addEventListener("click", () => loadManagedModule("auditoria", loadAuditEvents, { forceRefresh: true }));
 
 manualSaleProductSelect?.addEventListener("change", () => {
   const selectedOption = manualSaleProductSelect.selectedOptions?.[0];
@@ -4489,6 +4800,10 @@ renewalDueList?.addEventListener("click", async (event) => {
 
     if (!item) {
       setStatus("No se encontro la cuenta seleccionada para avisar renovacion.", true);
+      return;
+    }
+
+    if (!(await ensureAlertTemplatesLoaded())) {
       return;
     }
 
@@ -4792,16 +5107,22 @@ renewInventoryButton?.addEventListener("click", async () => {
     renderInventoryList();
     renderProviderPurchases();
     fillInventoryForm(updated);
-    await loadOrders();
+    renderOrders();
+    renderDashboard();
+    renderReports();
     setStatus(`Cuenta ${selectedInventoryId} renovada.`);
   } catch (error) {
     setStatus(error.message, true);
   }
 });
 
-notifyRenewalButton?.addEventListener("click", () => {
+notifyRenewalButton?.addEventListener("click", async () => {
   if (!selectedInventoryId) {
     setStatus("Selecciona una cuenta para avisar vencimiento.", true);
+    return;
+  }
+
+  if (!(await ensureAlertTemplatesLoaded())) {
     return;
   }
 
@@ -5106,14 +5427,11 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-loadAdminSession();
-loadProducts();
-loadOrders();
-loadInventory();
-loadSuppliers();
-loadRenewals();
-loadPaymentMethods();
-loadTemplates();
-loadSiteSettings();
-loadAuditEvents();
-setAdminView(getInitialAdminView(), false);
+async function initializeAdmin() {
+  await loadAdminSession();
+  await loadInitialAdminViewData(getInitialAdminView());
+  adminInitialLoadComplete = true;
+  setAdminView(getInitialAdminView(), false);
+}
+
+initializeAdmin();

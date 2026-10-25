@@ -1268,6 +1268,40 @@ body.modal-open {
   box-shadow: var(--shadow);
 }
 
+.admin-load-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.module-load-item {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.module-load-item.is-loading { color: #9a6700; }
+.module-load-item.is-ready { color: #13795b; }
+.module-load-item.is-error { color: #b42318; }
+.module-load-item button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 900;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .admin-hero h1 {
   max-width: 850px;
   margin-bottom: 0.9rem;

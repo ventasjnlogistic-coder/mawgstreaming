@@ -313,8 +313,17 @@ async function loadProducts() {
   productCatalog.innerHTML = '<p class="catalog-message">Cargando productos...</p>';
   showStorefrontMessage("");
 
+  // Si Apps Script tarda, avisamos al usuario en vez de dejarlo en "Cargando...".
+  const slowNotice = window.setTimeout(() => {
+    if (productCatalog) {
+      productCatalog.innerHTML = '<p class="catalog-message">Esto esta tardando mas de lo normal. Seguimos intentando...</p>';
+    }
+  }, 8000);
+  const controller = new AbortController();
+  const requestTimeout = window.setTimeout(() => controller.abort(), 25000);
+
   try {
-    const response = await fetch("/api/productos");
+    const response = await fetch("/api/productos", { signal: controller.signal });
 
     if (!response.ok) {
       throw new Error("No se pudo cargar el catalogo");
@@ -335,6 +344,9 @@ async function loadProducts() {
     productCatalog.innerHTML =
       '<p class="catalog-message">No se pudo cargar el catalogo. Revisa que el servidor local este activo.</p>';
     showStorefrontMessage("No pudimos actualizar los productos. Intenta recargar la pagina.", true);
+  } finally {
+    window.clearTimeout(slowNotice);
+    window.clearTimeout(requestTimeout);
   }
 }
 

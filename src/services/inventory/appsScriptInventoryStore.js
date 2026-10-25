@@ -2,7 +2,7 @@ class AppsScriptInventoryStore {
   constructor(config) {
     this.endpointUrl = config.endpointUrl;
     this.adminToken = config.adminToken;
-    this.timeoutMs = Number(config.timeoutMs || 45000);
+    this.timeoutMs = Number(config.timeoutMs || 15000);
   }
 
   createResponseError(response, data) {
@@ -65,8 +65,18 @@ class AppsScriptInventoryStore {
   }
 
   isRetryableReadError(error) {
+    const statusCode = Number(error?.statusCode || 0);
     const message = String(error?.message || "").toLowerCase();
-    return error?.name === "AbortError" || message.includes("fetch failed") || message.includes("network");
+    return (
+      error?.name === "AbortError" ||
+      statusCode === 500 ||
+      statusCode === 502 ||
+      statusCode === 503 ||
+      statusCode === 504 ||
+      message.includes("fetch failed") ||
+      message.includes("network") ||
+      message.includes("demoro demasiado")
+    );
   }
 
   async requestReadWithRetry(payload = {}) {
@@ -85,6 +95,21 @@ class AppsScriptInventoryStore {
   async listItems() {
     const data = await this.requestReadWithRetry(this.withToken({ action: "inventory.list" }));
     return Array.isArray(data.inventory) ? data.inventory : [];
+  }
+
+  async getDashboardSnapshot() {
+    const data = await this.requestReadWithRetry(this.withToken({ action: "dashboard.snapshot" }));
+    const dashboard = data.dashboard || {};
+
+    return {
+      products: Array.isArray(dashboard.products) ? dashboard.products : [],
+      orders: Array.isArray(dashboard.orders) ? dashboard.orders : [],
+      inventory: Array.isArray(dashboard.inventory) ? dashboard.inventory : [],
+      renewals: Array.isArray(dashboard.renewals) ? dashboard.renewals : [],
+      providers: Array.isArray(dashboard.providers) ? dashboard.providers : [],
+      provider_purchases: Array.isArray(dashboard.provider_purchases) ? dashboard.provider_purchases : [],
+      payment_methods: Array.isArray(dashboard.payment_methods) ? dashboard.payment_methods : [],
+    };
   }
 
   async createItem(item) {

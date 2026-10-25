@@ -1,11 +1,13 @@
 const JsonSupplierStore = require("./jsonSupplierStore");
 const AppsScriptSupplierStore = require("./appsScriptSupplierStore");
+const { enabled: d1Enabled, D1SupplierStore } = require("../d1/d1OperationalStores");
 
 function hasAppsScriptConfig(env) {
   return Boolean(String(env.APPS_SCRIPT_CATALOG_URL || "").trim() && String(env.APPS_SCRIPT_ADMIN_TOKEN || "").trim());
 }
 
 function createSupplierStore(env = process.env) {
+  if (d1Enabled(env)) return new D1SupplierStore(env.DB);
   const jsonStore = new JsonSupplierStore({
     providersPath: env.PROVIDERS_JSON_PATH || "proveedores.json",
     purchasesPath: env.PROVIDER_PURCHASES_JSON_PATH || "compras-proveedor.json",

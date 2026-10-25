@@ -1,11 +1,13 @@
 const AppsScriptSiteSettingStore = require("./appsScriptSiteSettingStore");
 const JsonSiteSettingStore = require("./jsonSiteSettingStore");
+const { enabled: d1Enabled, D1SiteSettingStore } = require("../d1/d1OperationalStores");
 
 function hasAppsScriptConfig(env) {
   return Boolean(String(env.APPS_SCRIPT_CATALOG_URL || "").trim() && String(env.APPS_SCRIPT_ADMIN_TOKEN || "").trim());
 }
 
 function createSiteSettingStore(env = process.env) {
+  if (d1Enabled(env)) return new D1SiteSettingStore(env.DB);
   if (env.CATALOG_STORAGE === "apps-script" && hasAppsScriptConfig(env)) {
     return new AppsScriptSiteSettingStore({
       endpointUrl: String(env.APPS_SCRIPT_CATALOG_URL || "").trim(),

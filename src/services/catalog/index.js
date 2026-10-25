@@ -1,5 +1,6 @@
 const JsonCatalogStore = require("./jsonCatalogStore");
 const AppsScriptCatalogStore = require("./appsScriptCatalogStore");
+const { enabled: d1Enabled, D1CatalogStore } = require("../d1/d1OperationalStores");
 
 function hasAppsScriptConfig(env) {
   return Boolean(String(env.APPS_SCRIPT_CATALOG_URL || "").trim() && String(env.APPS_SCRIPT_ADMIN_TOKEN || "").trim());
@@ -14,6 +15,7 @@ function hasSheetsConfig(env) {
 }
 
 function createCatalogStore(env = process.env) {
+  if (d1Enabled(env)) return new D1CatalogStore(env.DB);
   if (env.CATALOG_STORAGE === "apps-script") {
     if (!hasAppsScriptConfig(env)) {
       console.warn(
@@ -36,7 +38,10 @@ function createCatalogStore(env = process.env) {
     } else {
       let GoogleSheetsCatalogStore;
       try {
-        GoogleSheetsCatalogStore = require("./googleSheetsCatalogStore");
+        // El adaptador de cuenta de servicio es heredado y no forma parte del
+        // bundle de Workers; Apps Script es el modo soportado en Cloudflare.
+        const legacyStoreModule = `./${"googleSheetsCatalogStore"}`;
+        GoogleSheetsCatalogStore = require(legacyStoreModule);
       } catch (error) {
         console.warn(
           "CATALOG_STORAGE=sheets requiere instalar googleapis. Se usara productos.json como respaldo local."
