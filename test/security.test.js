@@ -203,3 +203,30 @@ test("un rol mixto de proveedores y reportes no recibe claves de inventario", ()
   assert.equal(snapshot.inventory[0].cuenta_clave, undefined);
   assert.equal(snapshot.provider_purchases[0].cuenta_clave, "supplier-secret");
 });
+
+test("la inicializacion de seguridad no consulta el binding durante la validacion", async () => {
+  const { createSecurityNamespace } = require("../src/services/security/client");
+  const { createAuditStore } = require("../src/services/audit");
+  const DurableAuditStore = require("../src/services/audit/durableAuditStore");
+  let current;
+  let reads = 0;
+  const deferred = createSecurityNamespace(() => { reads += 1; return current; }, true);
+  const sessions = new DurableSessionStore({ namespace: deferred, ttlMs: 60000 });
+  const versions = createSessionVersions(deferred);
+  const audit = createAuditStore({}, deferred);
+  assert.ok(audit instanceof DurableAuditStore);
+  assert.equal(reads, 0, "ningun almacen captura un namespace ausente al arrancar");
+  await assert.rejects(() => versions.get("operator"), /SECURITY_STATE/);
+  current = await namespace();
+  await storeCall(sessions, "set", "late-binding", { authenticated: true, cookie: { expires: new Date(Date.now() + 60000).toISOString() } });
+  assert.equal((await storeCall(sessions, "get", "late-binding")).authenticated, true);
+  await audit.appendEvent({ evento_id: "late", creado_en: "2026-10-25T12:00:00Z" });
+  assert.equal((await audit.listEvents())[0].evento_id, "late");
+});
+
+test("un binding ausente no degrada los limites de Workers a memoria local", async () => {
+  const { createSecurityNamespace } = require("../src/services/security/client");
+  const deferred = createSecurityNamespace(() => undefined, true);
+  const limiter = createRateLimiter({ namespace: deferred, workerRuntime: true, scope: "login", max: 8, windowMs: 60000, message: "limit" });
+  await assert.rejects(() => runLimiter(limiter), /SECURITY_STATE/);
+});

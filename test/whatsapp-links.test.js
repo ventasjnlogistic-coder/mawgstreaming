@@ -16,10 +16,10 @@ function build(navigator, contact = "51999999999") {
 }
 
 for (const agent of ["Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "Mozilla/5.0 (X11; Linux x86_64)"]) {
-  test(`escritorio abre WhatsApp Web directamente: ${agent}`, () => {
+  test(`escritorio abre la aplicacion: ${agent}`, () => {
     const url = new URL(build({ userAgent: agent }));
-    assert.equal(url.origin, "https://web.whatsapp.com");
-    assert.equal(url.pathname, "/send");
+    assert.equal(url.protocol, "whatsapp:");
+    assert.equal(url.hostname, "send");
     assert.equal(url.searchParams.get("phone"), "51999999999");
     assert.equal(url.searchParams.get("text"), "Hola ✅\nRenovacion & pago + perfil");
   });
@@ -31,10 +31,11 @@ for (const navigator of [
   { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)", maxTouchPoints: 5 },
   { userAgent: "", userAgentData: { mobile: true } },
 ]) {
-  test(`movil conserva enlace de chat: ${JSON.stringify(navigator)}`, () => {
+  test(`movil abre la aplicacion: ${JSON.stringify(navigator)}`, () => {
     const url = new URL(build(navigator));
-    assert.equal(url.origin, "https://wa.me");
-    assert.equal(url.pathname, "/51999999999");
+    assert.equal(url.protocol, "whatsapp:");
+    assert.equal(url.hostname, "send");
+    assert.equal(url.searchParams.get("phone"), "51999999999");
     assert.equal(url.searchParams.get("text"), "Hola ✅\nRenovacion & pago + perfil");
   });
 }

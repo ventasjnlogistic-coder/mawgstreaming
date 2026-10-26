@@ -64,3 +64,29 @@ test("login, migracion de clave, revocacion y logout en el runtime real de Worke
     await new Promise((resolve) => mock.close(resolve));
   }
 });
+
+test("Worker arranca sin namespace en validacion y rechaza login si sigue ausente", { timeout: 20000 }, async () => {
+  const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{
+    name: "mawg-validation-test",
+    scriptPath: path.join(__dirname, "../.tmp-worker-check/worker.js"),
+    modules: true,
+    compatibilityDate: "2026-09-16",
+    compatibilityFlags: ["nodejs_compat_v2", "enable_nodejs_http_server_modules"],
+    bindings: {
+      NODE_ENV: "test", CATALOG_STORAGE: "json", OPERATIONS_STORAGE: "apps-script",
+      ADMIN_USER: "validation-admin", ADMIN_PASSWORD: "validation-secret", SESSION_SECRET: "validation-session-secret-long-enough",
+    },
+    handleStructuredLogs: () => {},
+  }] }));
+  try {
+    const status = await mf.dispatchFetch("http://worker.test/api/admin/session");
+    assert.equal(status.status, 200);
+    assert.equal((await status.json()).authenticated, false);
+    const login = await mf.dispatchFetch("http://worker.test/api/admin/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usuario: "validation-admin", password: "validation-secret" }),
+    });
+    assert.equal(login.status, 503);
+    assert.ok(!login.headers.getSetCookie().some((value) => value.startsWith("streamhub.sid=")));
+  } finally { await mf.dispose(); }
+});

@@ -1186,14 +1186,8 @@ function buildWhatsAppUrl(contact, message) {
   if (!phone) return "";
 
   const text = renderWhatsAppEmojis(message);
-  const mobile = navigator.userAgentData?.mobile === true ||
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "") ||
-    (/Macintosh/i.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1);
-
-  // En escritorio abrimos Web directamente para evitar la pantalla que invita
-  // a instalar la aplicacion. En movil se conserva el enlace oficial de chat.
-  if (mobile) return `https://wa.me/${phone}?${new URLSearchParams({ text }).toString()}`;
-  return `https://web.whatsapp.com/send?${new URLSearchParams({ phone, text }).toString()}`;
+  // Abre directamente la aplicacion de WhatsApp instalada.
+  return `whatsapp://send?${new URLSearchParams({ phone, text }).toString()}`;
 }
 
 function sumMoney(values) {
