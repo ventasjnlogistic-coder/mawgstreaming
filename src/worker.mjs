@@ -1,3 +1,4 @@
+export { SecurityState } from "./services/security/durableSecurityState.mjs";
 import { env } from "cloudflare:workers";
 import { httpServerHandler } from "cloudflare:node";
 

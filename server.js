@@ -38,7 +38,12 @@ const {
   RENEWAL_STATUSES,
 } = require("./src/services/renewals/validation");
 const FileSessionStore = require("./src/services/sessions/fileSessionStore");
-const KvSessionStore = require("./src/services/sessions/kvSessionStore");
+const DurableSessionStore = require("./src/services/sessions/durableSessionStore");
+const { createRateLimiter: buildRateLimiter } = require("./src/services/security/rateLimiter");
+const { canRead, filterOperationalData } = require("./src/services/security/access");
+const { createSessionVersions } = require("./src/services/security/sessionVersions");
+const { createSecurityNamespace } = require("./src/services/security/client");
+const securityNamespace = createSecurityNamespace(() => runtimeEnv.SECURITY_STATE, isWorkerRuntime);
 const D1SheetsImportService = require("./src/services/migrations/d1SheetsImportService");
 const {
   normalizeInventoryItem,
@@ -76,7 +81,7 @@ const messageTemplateStore = createMessageTemplateStore(runtimeEnv);
 const siteSettingStore = createSiteSettingStore(runtimeEnv);
 const userStore = createUserStore(runtimeEnv);
 const supplierStore = createSupplierStore(runtimeEnv);
-const auditStore = createAuditStore(runtimeEnv);
+const auditStore = createAuditStore(runtimeEnv, securityNamespace);
 const d1SheetsImportService = new D1SheetsImportService({
   db: globalThis.__MAWG_D1__,
   sources: {
@@ -116,10 +121,13 @@ const sessionMaxAgeHours =
   Number.isFinite(configuredSessionMaxAgeHours) && configuredSessionMaxAgeHours > 0 ? configuredSessionMaxAgeHours : 8;
 const sessionMaxAgeMs = 1000 * 60 * 60 * sessionMaxAgeHours;
 const defaultSessionFileDir = isProduction ? path.join(os.tmpdir(), "mawg-streaming-sessions") : ".sessions";
+const sessionVersions = createSessionVersions(securityNamespace,
+  !isWorkerRuntime && (isProduction || runtimeEnv.SESSION_STORE === "file") ? runtimeEnv.SESSION_FILE_DIR || defaultSessionFileDir : undefined
+);
 const sessionStore =
-  globalThis.__MAWG_SESSION_KV__
-    ? new KvSessionStore({
-        kv: globalThis.__MAWG_SESSION_KV__,
+  securityNamespace
+    ? new DurableSessionStore({
+        namespace: securityNamespace,
         ttlMs: sessionMaxAgeMs,
       })
     : isWorkerRuntime
@@ -131,13 +139,6 @@ const sessionStore =
       })
     : undefined;
 
-if (isWorkerRuntime && !globalThis.__MAWG_SESSION_KV__) {
-  // En Workers no se usa el sistema de archivos: sin el binding KV las sesiones
-  // quedarian solo en memoria y se perderian al reciclar la instancia.
-  console.error(
-    "SESSIONS KV no esta enlazado. Configura el binding KV 'SESSIONS' en wrangler.toml para que el login del admin persista."
-  );
-}
 const configuredProofUploadMaxMb = Number(runtimeEnv.PROOF_UPLOAD_MAX_MB);
 const proofUploadMaxMb = Number.isFinite(configuredProofUploadMaxMb) && configuredProofUploadMaxMb > 0 ? configuredProofUploadMaxMb : 8;
 const proofUploadMaxBytes = Math.max(1, proofUploadMaxMb) * 1024 * 1024;
@@ -310,43 +311,24 @@ function sendCachedAsset(req, res, fileName, cacheControl = "public, max-age=360
   sendPublicFile(req, res, fileName, cacheControl);
 }
 
-function createRateLimiter({ windowMs, max, message }) {
-  const attempts = new Map();
-
-  return (req, res, next) => {
-    const now = Date.now();
-    const key = req.ip || req.socket?.remoteAddress || "unknown";
-    const current = attempts.get(key);
-
-    if (!current || current.resetAt <= now) {
-      attempts.set(key, { count: 1, resetAt: now + windowMs });
-      next();
-      return;
-    }
-
-    current.count += 1;
-
-    if (current.count > max) {
-      res.setHeader("Retry-After", String(Math.ceil((current.resetAt - now) / 1000)));
-      res.status(429).json({ error: message });
-      return;
-    }
-
-    next();
-  };
+function createRateLimiter(options) {
+  return buildRateLimiter({ ...options, namespace: securityNamespace, workerRuntime: isWorkerRuntime });
 }
 
 const loginRateLimit = createRateLimiter({
+  scope: "login",
   windowMs: 15 * 60 * 1000,
   max: runtimeEnv.NODE_ENV === "test" ? 100 : 8,
   message: "Demasiados intentos de acceso. Intenta nuevamente en unos minutos.",
 });
 const orderRateLimit = createRateLimiter({
+  scope: "orders",
   windowMs: 10 * 60 * 1000,
   max: 30,
   message: "Demasiados pedidos desde esta conexion. Intenta nuevamente en unos minutos.",
 });
 const proofRateLimit = createRateLimiter({
+  scope: "proofs",
   windowMs: 10 * 60 * 1000,
   max: 20,
   message: "Demasiados comprobantes desde esta conexion. Intenta nuevamente en unos minutos.",
@@ -354,6 +336,7 @@ const proofRateLimit = createRateLimiter({
 
 app.use(setSecurityHeaders);
 app.use(express.json({ limit: "1mb" }));
+app.use("/api/admin", (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
 app.use(
   session({
     name: "streamhub.sid",
@@ -370,67 +353,35 @@ app.use(
   })
 );
 
+// Las cookies antiguas streamhub.auth dejan de autenticar: toda solicitud
+// debe tener una sesion vigente en el almacen del servidor.
 const signedAuthCookieName = "streamhub.auth";
-
-function getCookieValue(req, name) {
-  const prefix = `${name}=`;
-  return String(req.headers.cookie || "")
-    .split(";")
-    .map((entry) => entry.trim())
-    .find((entry) => entry.startsWith(prefix))
-    ?.slice(prefix.length);
-}
-
-function createSignedAuthToken(user) {
-  const payload = {
-    u: String(user?.usuario || ""),
-    n: String(user?.nombre || ""),
-    r: String(user?.rol || ""),
-    p: Array.isArray(user?.permisos) ? user.permisos : String(user?.permisos || "").split(",").filter(Boolean),
-    e: Date.now() + sessionMaxAgeMs,
-  };
-  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const signature = crypto.createHmac("sha256", sessionSecret).update(encodedPayload).digest("base64url");
-  return `${encodedPayload}.${signature}`;
-}
-
-function readSignedAuthUser(req) {
-  const token = getCookieValue(req, signedAuthCookieName);
-  if (!token) {
-    return null;
-  }
-
-  const [encodedPayload, signature, ...rest] = token.split(".");
-  if (!encodedPayload || !signature || rest.length > 0) {
-    return null;
-  }
-
-  const expectedSignature = crypto.createHmac("sha256", sessionSecret).update(encodedPayload).digest("base64url");
-  if (!safeCompare(signature, expectedSignature)) {
-    return null;
-  }
-
-  try {
-    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
-    if (!payload?.u || !Number.isFinite(Number(payload.e)) || Number(payload.e) <= Date.now()) {
-      return null;
-    }
-    return {
-      usuario: payload.u,
-      nombre: payload.n || payload.u,
-      rol: payload.r || "admin",
-      permisos: Array.isArray(payload.p) ? payload.p : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
 function getAuthenticatedUser(req) {
-  if (req.session?.authenticated && req.session?.adminUser) {
-    return req.session.adminUser;
-  }
-  return readSignedAuthUser(req);
+  return req.session?.authenticated && req.session?.adminUser ? req.session.adminUser : null;
+}
+
+app.use(async (req, res, next) => {
+  const user = getAuthenticatedUser(req);
+  if (!user) return next();
+  try {
+    if ((req.session.userVersion || "") !== await sessionVersions.get(user.usuario)) {
+      await new Promise((resolve, reject) => req.session.destroy((error) => error ? reject(error) : resolve()));
+      res.clearCookie("streamhub.sid", { path: "/" });
+      return next();
+    }
+    next();
+  } catch (error) { next(error); }
+});
+
+function requireRead(resource) {
+  return (req, res, next) => {
+    if (!isAuthenticated(req)) return requireAuth(req, res, next);
+    if (!canRead(getSessionPermissions(req), resource)) return res.status(403).json({ error: "No tienes permisos para consultar este modulo." });
+    next();
+  };
+}
+function operationalResponse(req, value, resource) {
+  return filterOperationalData(getSessionPermissions(req), value, resource);
 }
 
 function isAuthenticated(req) {
@@ -1991,7 +1942,7 @@ app.get("/api/configuracion-sitio", async (req, res) => {
   }
 });
 
-app.get("/api/health/config", (_req, res) => {
+app.get("/api/health/config", requirePermission("*"), (_req, res) => {
   const appsScriptUrl = String(runtimeEnv.APPS_SCRIPT_CATALOG_URL || "").trim();
   const adminToken = String(runtimeEnv.APPS_SCRIPT_ADMIN_TOKEN || "").trim();
 
@@ -2008,12 +1959,11 @@ app.get("/api/health/config", (_req, res) => {
       url_present: Boolean(appsScriptUrl),
       token_present: Boolean(adminToken),
       url_hint: maskValue(appsScriptUrl),
-      token_hint: maskValue(adminToken),
     },
   });
 });
 
-app.get("/api/health/users", async (_req, res) => {
+app.get("/api/health/users", requirePermission("*"), async (_req, res) => {
   try {
     const user = await userStore.authenticate("__healthcheck__", "__healthcheck__");
     res.json({
@@ -2035,7 +1985,7 @@ app.get("/api/health/users", async (_req, res) => {
   }
 });
 
-app.get("/api/admin/plantillas", requireAuth, async (_req, res) => {
+app.get("/api/admin/plantillas", requireRead("templates"), async (_req, res) => {
   try {
     res.json(await messageTemplateStore.listTemplates());
   } catch (error) {
@@ -2069,7 +2019,7 @@ app.put("/api/admin/plantillas/:id", requirePermission("plantillas"), async (req
   }
 });
 
-app.get("/api/admin/configuracion-sitio", requireAuth, async (_req, res) => {
+app.get("/api/admin/configuracion-sitio", requireRead("settings"), async (_req, res) => {
   try {
     res.json(await siteSettingStore.listSettings());
   } catch (error) {
@@ -2128,6 +2078,9 @@ app.post("/api/admin/migraciones/d1/importar-sheets", requirePermission("configu
 
 app.post("/api/admin/login", loginRateLimit, async (req, res) => {
   const { usuario, password } = req.body || {};
+  if (typeof usuario !== "string" || !usuario.trim() || usuario.length > 128 || typeof password !== "string" || !password || password.length > 1024) {
+    return res.status(400).json({ error: "Ingresa un usuario y contrasena validos." });
+  }
 
   let sheetUser = null;
 
@@ -2137,7 +2090,17 @@ app.post("/api/admin/login", loginRateLimit, async (req, res) => {
     logUnexpectedError(error);
   }
 
-  if (sheetUser || (safeCompare(usuario || "", adminUser) && safeCompare(password || "", adminPassword))) {
+  const environmentCredentialsMatch = safeCompare(usuario, adminUser) && safeCompare(password, adminPassword);
+  let environmentLoginAllowed = false;
+  if (!sheetUser && environmentCredentialsMatch) {
+    try {
+      environmentLoginAllowed = typeof userStore.findUser === "function" ? !(await userStore.findUser(adminUser)) : true;
+    } catch (error) {
+      // El acceso de emergencia durante una caida debe habilitarse explicitamente.
+      environmentLoginAllowed = runtimeEnv.ALLOW_ADMIN_FALLBACK === "true";
+    }
+  }
+  if (sheetUser || (environmentCredentialsMatch && environmentLoginAllowed)) {
     const sessionUser = sheetUser || {
       usuario: adminUser,
       nombre: "Administrador",
@@ -2145,15 +2108,13 @@ app.post("/api/admin/login", loginRateLimit, async (req, res) => {
       estado: "activo",
       permisos: ["*"],
     };
+    const version = await sessionVersions.get(sessionUser.usuario);
+    await new Promise((resolve, reject) => req.session.regenerate((error) => error ? reject(error) : resolve()));
     req.session.authenticated = true;
     req.session.adminUser = sessionUser;
-    res.cookie(signedAuthCookieName, createSignedAuthToken(sessionUser), {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: isProduction,
-      maxAge: sessionMaxAgeMs,
-      path: "/",
-    });
+    req.session.userVersion = version;
+    await new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()));
+    res.clearCookie(signedAuthCookieName, { path: "/" });
     res.json({ ok: true, user: sessionUser });
     return;
   }
@@ -2161,15 +2122,24 @@ app.post("/api/admin/login", loginRateLimit, async (req, res) => {
   res.status(401).json({ error: "Usuario o contrasena incorrectos." });
 });
 
-app.post("/api/admin/logout", requireAuth, (req, res) => {
-  req.session.destroy(() => {
+app.post("/api/admin/logout", requireAuth, (req, res, next) => {
+  req.session.destroy((error) => {
+    if (error) return next(error);
     res.clearCookie("streamhub.sid");
     res.clearCookie(signedAuthCookieName, { path: "/" });
     res.json({ ok: true });
   });
 });
 
-app.get("/api/admin/productos", requireAuth, async (_req, res) => {
+app.post("/api/admin/sesiones/revocar", requirePermission("*"), async (req, res) => {
+  const usuario = String(req.body?.usuario || "").trim();
+  if (!usuario || usuario.length > 128) return res.status(400).json({ error: "Indica el usuario cuyas sesiones deseas revocar." });
+  await sessionVersions.revoke(usuario);
+  await audit(req, { entidad: "usuario", entidad_id: usuario, accion: "revocar_sesiones" });
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/productos", requireRead("products"), async (_req, res) => {
   try {
     const products = await getCachedAdminProducts();
     res.setHeader("Cache-Control", "no-store");
@@ -2186,35 +2156,36 @@ app.get("/api/admin/productos", requireAuth, async (_req, res) => {
   }
 });
 
-app.get("/api/admin/dashboard-snapshot", requireAuth, async (_req, res) => {
+app.get("/api/admin/dashboard-snapshot", requireAuth, async (req, res) => {
   try {
-    if (typeof inventoryStore.getDashboardSnapshot === "function") {
-      const snapshot = await inventoryStore.getDashboardSnapshot();
-      res.json({
-        products: snapshot.products.map(normalizeProduct),
-        orders: snapshot.orders.map(normalizeOrder),
-        inventory: snapshot.inventory.map(normalizeInventoryItem),
-        renewals: snapshot.renewals.map(normalizeRenewal),
-        providers: snapshot.providers.map(normalizeProvider),
-        provider_purchases: snapshot.provider_purchases.map(normalizeProviderPurchase),
-        payment_methods: snapshot.payment_methods,
-      });
-      return;
+    const permissions = getSessionPermissions(req);
+    const resources = {
+      products: getCachedAdminProducts,
+      orders: async () => (await orderStore.listOrders()).map(normalizeOrder),
+      inventory: readInventory,
+      renewals: readRenewals,
+      providers: readProviders,
+      provider_purchases: readProviderPurchases,
+      payment_methods: () => paymentMethodStore.listMethods(),
+    };
+    let snapshot;
+    if (permissions.includes("*") && typeof inventoryStore.getDashboardSnapshot === "function") {
+      const raw = await inventoryStore.getDashboardSnapshot();
+      snapshot = {
+        products: raw.products.map(normalizeProduct), orders: raw.orders.map(normalizeOrder),
+        inventory: raw.inventory.map(normalizeInventoryItem), renewals: raw.renewals.map(normalizeRenewal),
+        providers: raw.providers.map(normalizeProvider), provider_purchases: raw.provider_purchases.map(normalizeProviderPurchase),
+        payment_methods: raw.payment_methods,
+      };
+    } else {
+      snapshot = Object.fromEntries(await Promise.all(Object.entries(resources).map(async ([resource, load]) =>
+        [resource, canRead(permissions, resource) ? await load() : []]
+      )));
     }
-
-    const [products, orders, inventory, renewals, providers, providerPurchases, paymentMethods] = await Promise.all([
-      readProducts(),
-      orderStore.listOrders(),
-      readInventory(),
-      readRenewals(),
-      readProviders(),
-      readProviderPurchases(),
-      paymentMethodStore.listMethods(),
-    ]);
-    res.json({ products, orders, inventory, renewals, providers, provider_purchases: providerPurchases, payment_methods: paymentMethods });
+    res.json(operationalResponse(req, snapshot));
   } catch (error) {
     logUnexpectedError(error);
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo cargar el resumen operativo." });
+    res.status(500).json({ error: "No se pudo cargar el resumen operativo." });
   }
 });
 
@@ -2267,9 +2238,9 @@ app.delete("/api/admin/productos/:id", requirePermission("productos"), async (re
   }
 });
 
-app.get("/api/admin/inventario", requireAuth, async (_req, res) => {
+app.get("/api/admin/inventario", requireRead("inventory"), async (req, res) => {
   try {
-    res.json(await readInventory());
+    res.json(operationalResponse(req, await readInventory(), "inventory"));
   } catch (error) {
     logUnexpectedError(error);
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo cargar el inventario de cuentas." });
@@ -2395,9 +2366,9 @@ app.put("/api/admin/inventario/:id/renovar", requirePermission("inventario"), as
   }
 });
 
-app.get("/api/admin/renovaciones", requireAuth, async (_req, res) => {
+app.get("/api/admin/renovaciones", requireRead("renewals"), async (req, res) => {
   try {
-    res.json(await readRenewals());
+    res.json(operationalResponse(req, await readRenewals(), "renewals"));
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudieron cargar las renovaciones." });
@@ -2505,9 +2476,9 @@ app.post("/api/admin/renovaciones/:id/confirmar", requirePermission("renovacione
   }
 });
 
-app.get("/api/admin/proveedores", requireAuth, async (_req, res) => {
+app.get("/api/admin/proveedores", requireRead("providers"), async (req, res) => {
   try {
-    res.json(await readProviders());
+    res.json(operationalResponse(req, await readProviders(), "providers"));
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudieron cargar los proveedores." });
@@ -2550,9 +2521,9 @@ app.put("/api/admin/proveedores/:id", requirePermission("proveedores"), async (r
   }
 });
 
-app.get("/api/admin/compras-proveedor", requireAuth, async (_req, res) => {
+app.get("/api/admin/compras-proveedor", requireRead("provider_purchases"), async (req, res) => {
   try {
-    res.json(await readProviderPurchases());
+    res.json(operationalResponse(req, await readProviderPurchases(), "provider_purchases"));
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudieron cargar las compras de proveedor." });
@@ -2601,7 +2572,7 @@ app.put("/api/admin/compras-proveedor/:id", requirePermission("proveedores"), as
   }
 });
 
-app.get("/api/admin/auditoria", requireAuth, async (req, res) => {
+app.get("/api/admin/auditoria", requireRead("audit"), async (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 300);
     res.json(await auditStore.listEvents({ limit }));
@@ -2835,9 +2806,9 @@ app.post("/api/pedidos/:id/comprobante", proofRateLimit, handleProofUpload, asyn
   }
 });
 
-app.get("/api/admin/pedidos", requireAuth, async (_req, res) => {
+app.get("/api/admin/pedidos", requireRead("orders"), async (req, res) => {
   try {
-    res.json(await orderStore.listOrders());
+    res.json(operationalResponse(req, await orderStore.listOrders(), "orders"));
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudieron cargar los pedidos." });
@@ -2978,6 +2949,12 @@ app.post("/api/admin/pedidos/:id/asignar-inventario", requirePermission("compras
     logUnexpectedError(error);
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo asignar la cuenta al pedido." });
   }
+});
+
+app.use((error, _req, res, _next) => {
+  logUnexpectedError(error);
+  if (res.headersSent) return _next(error);
+  res.status(error.type === "entity.parse.failed" ? 400 : 503).json({ error: error.type === "entity.parse.failed" ? "El formato de la solicitud no es valido." : "El servicio no esta disponible temporalmente. Intenta nuevamente." });
 });
 
 function startServer() {

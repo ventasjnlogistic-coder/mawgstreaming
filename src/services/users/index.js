@@ -14,6 +14,7 @@ function createUserStore(env = process.env) {
   if (env.CATALOG_STORAGE === "apps-script" && hasAppsScriptConfig(env)) {
     return new AppsScriptUserStore({
       endpointUrl: String(env.APPS_SCRIPT_CATALOG_URL || "").trim(),
+      adminToken: String(env.APPS_SCRIPT_ADMIN_TOKEN || "").trim(),
       timeoutMs: env.APPS_SCRIPT_TIMEOUT_MS,
     });
   }

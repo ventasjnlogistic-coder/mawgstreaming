@@ -77,7 +77,7 @@ En Cloudflare Workers este cache tiene dos niveles: un L1 en memoria por instanc
 
 ## Despliegue en Cloudflare Workers
 
-La aplicacion se despliega como un Worker con **Assets** para `public/` y un namespace **KV** para sesiones. Google Apps Script y Drive siguen siendo el origen de datos y archivos, por lo que no se migran las hojas existentes.
+La aplicacion se despliega como un Worker con **Assets** para `public/`, **Durable Objects** para sesiones y limites de intentos, y **KV** para la cache publica. Google Apps Script y Drive siguen siendo el origen de datos y archivos, por lo que no se migran las hojas existentes.
 
 1. Instala dependencias y crea el namespace KV:
 
@@ -116,11 +116,11 @@ SESSION_MAX_AGE_HOURS = "24"
 
 5. Prueba localmente con `copy .dev.vars.example .dev.vars`, completa los valores y ejecuta `npm run dev:worker`. Despliega con `npm run deploy:worker`.
 
-Los Assets se publican desde `public/`; las rutas `/api/*` entran a Express. Las sesiones se almacenan en KV con expiracion igual a `SESSION_MAX_AGE_HOURS`, por lo que el inicio de sesion funciona entre instancias y ubicaciones de Workers.
+Los Assets se publican desde `public/`; las rutas `/api/*` entran a Express. Las sesiones se almacenan en el binding `SECURITY_STATE` con expiracion segun `SESSION_MAX_AGE_HOURS`. El mismo binding coordina los limites por IP y la revocacion por usuario entre instancias. `SESSIONS` KV se conserva para la cache del catalogo. Esto es independiente de D1.
 
 ## Migracion a D1 (Fase 3)
 
-D1 reemplaza a Google Sheets como almacen de la operacion diaria. El interruptor es `OPERATIONS_STORAGE`:
+D1 es una alternativa a Google Sheets como almacen de la operacion diaria. El interruptor es `OPERATIONS_STORAGE`:
 
 - `apps-script` (actual): Sheets sigue siendo la fuente de datos.
 - `d1`: catalogo, inventario, pedidos, renovaciones, proveedores, compras, metodos de pago, plantillas, configuracion, usuarios y auditoria se leen/escriben en D1.
@@ -133,7 +133,7 @@ El esquema vive en [migrations/0001_init.sql](migrations/0001_init.sql) y es ide
 npx wrangler d1 migrations apply mawg-streaming-db --remote
 ```
 
-2. Sembrar el usuario del panel. Los usuarios no se importan de Sheets (Apps Script solo expone `users.auth`):
+2. Sembrar el usuario del panel. Los usuarios no se importan de Sheets mediante el importador operativo:
 
 ```bash
 npx wrangler d1 execute mawg-streaming-db --remote --command "INSERT INTO users (usuario, nombre, rol, password, estado, permisos) VALUES ('admin','Administrador','admin','TU_CLAVE','activo','*')"
@@ -399,7 +399,7 @@ npm start
 - `PUT /api/admin/renovaciones/:id`: actualiza estado, metodo y monto de una renovacion.
 - `POST /api/admin/renovaciones/:id/confirmar`: sube el comprobante como archivo, confirma el pago, marca la renovacion como `renovado` y actualiza el vencimiento en inventario y pedido vinculado.
 - `GET/POST/PUT /api/admin/proveedores`: mantenimiento de proveedores.
-- `GET/POST/PUT /api/admin/compras-proveedor`: control de compras a proveedores, costos, referencias de pago y vencimiento proveedor. Al guardar una compra como `recibido`, se crean cuentas de inventario con estado `pendiente_revision`.
+- `GET/POST/PUT /api/admin/compras-proveedor`: control de compras a proveedores, costos, referencias de pago y vencimiento proveedor. Al guardar una compra como `recibido`, se crean cuentas de inventario con estado `reservado`.
 
 ## Flujo operativo
 
@@ -471,7 +471,7 @@ Para nuevos despliegues, usa el modo Apps Script porque requiere menos configura
 
 - `otros/manuales/`: manuales generados, capturas y renders usados para documentacion.
 - `otros/herramientas-manuales/`: scripts auxiliares para generar manuales.
-- `otros/pruebas/`: pruebas automatizadas del backend, validaciones y smoke test web.
+- `test/`: pruebas automatizadas del backend, validaciones y smoke test web.
 - `otros/logs/`: logs locales de ejecuciones anteriores.
 
 ## Pruebas
@@ -485,3 +485,68 @@ npm run test:api
 En PowerShell de Windows, si `npm` esta bloqueado por la politica de ejecucion, usa `npm.cmd test`, `npm.cmd run test:web` o `npm.cmd run test:api`.
 
 Sin instalar dependencias adicionales, `npm run test:web` valida que la web servida desde `public/` cargue HTML, CSS, JS, assets, admin protegido e imagenes de catalogo.
+
+## Correcciones de seguridad para JSON y Apps Script
+
+Estas correcciones no activan D1. Mantener `OPERATIONS_STORAGE = "apps-script"`.
+
+### Aplicar la actualizacion
+
+1. En Apps Script, copiar la nueva version de `scripts/google-apps-script-catalogo.gs`, conservando los valores reales de `ADMIN_TOKEN`, carpeta de comprobantes y demas configuracion del despliegue. Publicar una nueva version del Web App. Guardar el archivo no actualiza `/exec`.
+2. Confirmar que `APPS_SCRIPT_ADMIN_TOKEN` del backend coincide con `ADMIN_TOKEN`. El login remoto ahora consulta `users.credentials` y `users.password-upgrade`, protegidas con token; la antigua autenticacion publica `users.auth` deja de estar disponible. Actualizar Apps Script y el Worker en la misma ventana de mantenimiento.
+3. Ejecutar `npm install`, `npm test` y `npm run build`.
+4. Desplegar el Worker con `npm run deploy:worker`. La configuracion incluye el binding `SECURITY_STATE` y su declaracion `security-v1`. Esta declaracion crea el almacenamiento de seguridad, no modifica ni importa tablas D1. No ejecutar migraciones D1 para esta actualizacion.
+5. Volver a iniciar sesion: las sesiones anteriores en KV y las cookies `streamhub.auth` ya no conceden acceso. Probar un administrador y un operador antes de cerrar la ventana de mantenimiento.
+
+Los cambios locales no actualizan por si solos el Web App de Google ni el Worker publicado. Para desarrollo con Workers, copiar `.dev.vars.example` a `.dev.vars` y completar los secretos; este ultimo archivo queda ignorado por Git.
+
+### Contrasenas de usuarios
+
+El campo `password` de `UsuariosAdmin` y del archivo JSON acepta hashes `scrypt$v1$...` con sal aleatoria. El backend verifica la clave; el hash nunca se devuelve al navegador. Una clave antigua en texto plano se transforma al iniciar sesion correctamente. Los usuarios que aun no hayan entrado mantienen su clave antigua hasta migrarla o reemplazarla manualmente.
+
+Para crear o restablecer una clave sin guardarla en texto plano, ejecutar:
+
+```text
+node scripts/hash-admin-password.js
+```
+
+Introducir la clave en el aviso de entrada oculta y copiar solamente el hash resultante al campo `password` de Sheets o JSON. No usar este formato en `ADMIN_PASSWORD`: esa variable sigue siendo un secreto de entorno para la cuenta de respaldo. Usar un nombre diferente para esa cuenta de respaldo y las cuentas administradas desde Sheets. Una cuenta que ya existe en el almacen debe cumplir su estado y contrasena actuales: la clave del entorno no anula sus cambios. Si el almacen no responde, el acceso de emergencia requiere `ALLOW_ADMIN_FALLBACK=true` y credenciales de respaldo separadas.
+
+Despues de cambiar permisos, desactivar una cuenta o restablecer su clave en Sheets/JSON, revocar sus sesiones existentes mediante una solicitud autenticada de administrador:
+
+```text
+POST /api/admin/sesiones/revocar
+{ "usuario": "operador" }
+```
+
+El cambio de version invalida todas las sesiones existentes de ese usuario al siguiente acceso. Si la cuenta sigue activa puede volver a entrar con sus credenciales vigentes. El cierre de sesion tambien invalida el identificador del servidor; reutilizar la cookie no lo restaura.
+
+### Lecturas por rol
+
+Las escrituras conservan sus permisos por modulo. Las lecturas permiten las dependencias necesarias de otras pantallas:
+
+| Recurso | Permisos que habilitan su lectura |
+| --- | --- |
+| Productos | productos, compras, inventario, proveedores, renovaciones, reportes |
+| Pedidos e inventario | compras, inventario, renovaciones, reportes |
+| Renovaciones | renovaciones, inventario, reportes |
+| Proveedores y compras a proveedores | proveedores, inventario, reportes |
+| Plantillas de alertas | plantillas, compras, inventario, renovaciones |
+| Configuracion administrativa | plantillas |
+| Auditoria | auditoria |
+
+`*` habilita todos los recursos. El dashboard devuelve solo los recursos permitidos y el navegador omite las cargas que el rol no puede consultar. Los roles de reportes o solo renovaciones reciben datos sin credenciales de cuentas ni textos de entrega; compras e inventario mantienen credenciales de cuentas; proveedores solo recibe credenciales de sus compras. Los diagnosticos de configuracion y usuarios requieren `*`, y las respuestas del admin llevan `Cache-Control: no-store`.
+
+### Pruebas y operacion
+
+`npm test` ejecuta las pruebas de `test/`, incluidas las de permisos, claves protegidas, logout, revocacion, limites compartidos y alertas. Las compras de proveedor recibidas generan inventario en estado **reservado**. Las imagenes de Drive se normalizan con ancho de 800 px.
+
+En Workers los limites por IP y las sesiones requieren `SECURITY_STATE`; el binding se resuelve al procesar cada operacion y, si falta, se rechaza la operacion con HTTP 503 sin usar sesiones ni limites locales. La evaluacion del modulo durante el despliegue no exige que el namespace ya este disponible. En Node local se conserva el limite en memoria y sesiones de archivo o memoria segun la configuracion. Un despliegue Node con multiples procesos requiere un almacen compartido adicional; estos limites locales son para una sola instancia.
+
+Los fallos remotos al consultar plantillas se propagan como error: no se sustituyen silenciosamente por mensajes predeterminados. La configuracion de Durable Objects sigue la [documentacion oficial de Cloudflare](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/).
+
+La auditoria en Workers tambien se guarda en `SECURITY_STATE` (ultimos 1000 eventos), en lugar de intentar escribir `auditoria.json` en el sistema de archivos del Worker. En Node/JSON se conserva el archivo local. La auditoria local anterior no se copia automaticamente al nuevo almacen.
+
+`npm run test:worker` empaqueta sin desplegar y ejecuta una prueba en el runtime local de Cloudflare con un Apps Script simulado. Comprueba login, migracion de contrasena, revocacion, auditoria y logout sin consultar Sheets de produccion.
+
+El arranque del panel solicita solo las dependencias de la seccion abierta. Por ejemplo, abrir Plantillas ya no carga pedidos, inventario y proveedores; al navegar a otra seccion se cargan sus modulos pendientes. Dashboard y Reportes siguen reuniendo los datos permitidos para calcular sus indicadores.
