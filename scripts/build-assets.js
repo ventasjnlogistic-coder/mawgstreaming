@@ -7,7 +7,7 @@ const rootDir = path.join(__dirname, "..");
 const publicDir = path.join(rootDir, "public");
 const distDir = path.join(publicDir, "dist");
 
-const jsTargets = ["script.js", "login.js", "admin.js"];
+const jsTargets = ["script.js", "login.js", "admin.js", "admin-reports.js"];
 const cssTargets = ["styles.css"];
 
 function formatBytes(value) {

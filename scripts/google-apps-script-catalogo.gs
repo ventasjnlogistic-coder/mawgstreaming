@@ -286,13 +286,34 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  const payload = parsePayload_(e);
+  const action = String(payload.action || "").toLowerCase();
+  const keys = READ_CACHE_KEYS_BY_ACTION[action];
+  if (!keys || (action !== "orders.create" && !isValidToken_(payload.token))) {
+    return handlePost_(e);
+  }
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    try {
+      return handlePost_(e);
+    } finally {
+      // Incluye errores con escrituras parciales. No conserva lecturas antiguas.
+      try { SpreadsheetApp.flush(); } finally { invalidateReadCache_(keys); }
+    }
+  } catch (error) {
+    return jsonResponse({ ok: false, error: error.message });
+  } finally {
+    if (lock.hasLock()) lock.releaseLock();
+  }
+}
+
+function handlePost_(e) {
   try {
     const payload = parsePayload_(e);
     const action = String(payload.action || "").toLowerCase();
 
-    // No se mantienen lecturas obsoletas despues de crear, editar o eliminar.
-    // Se invalida solo la entidad afectada; las acciones de lectura no tocan cache.
-    invalidateReadCache_(READ_CACHE_KEYS_BY_ACTION[action]);
+    // doPost confirma las escrituras e invalida sus entidades al finalizar.
 
     if (action === "orders.create") {
       return jsonResponse({ ok: true, order: createOrder_(payload.order || {}) });
@@ -491,7 +512,10 @@ function parsePayload_(e) {
 
 function getCachedRead_(key, loader) {
   const cache = CacheService.getScriptCache();
-  const cacheKey = "mawg:" + key;
+  // Una lectura en curso puede terminar despues de guardar: su clave anterior
+  // queda inaccesible y expira sola, sin sobrescribir la nueva generacion.
+  const version = PropertiesService.getScriptProperties().getProperty("cache-version:" + key) || "0";
+  const cacheKey = "mawg:v2:" + key + ":" + version;
   const cached = cache.get(cacheKey);
 
   if (cached) {
@@ -508,7 +532,7 @@ function getCachedRead_(key, loader) {
     const serialized = JSON.stringify(value);
     // CacheService limita cada valor a 100 KB; los listados grandes se sirven
     // normalmente y simplemente no se cachean.
-    if (serialized.length <= 90000) {
+    if (Utilities.newBlob(serialized).getBytes().length <= 90000) {
       cache.put(cacheKey, serialized, READ_CACHE_TTL_SECONDS);
     }
   } catch (error) {
@@ -527,10 +551,12 @@ function invalidateReadCache_(keys) {
     return;
   }
 
-  const cache = CacheService.getScriptCache();
+  const versions = {};
   targets.forEach(function (key) {
-    cache.remove("mawg:" + key);
+    versions["cache-version:" + key] = Utilities.getUuid();
   });
+  PropertiesService.getScriptProperties().setProperties(versions);
+
 }
 
 function isValidToken_(token) {
@@ -770,10 +796,8 @@ function ensureSpecificHeaders_(sheet, headers) {
     return;
   }
 
-  for (let index = 0; index < headers.length; index += 1) {
-    if (current[index] !== headers[index]) {
-      sheet.getRange(1, index + 1).setValue(headers[index]);
-    }
+  if (headers.some(function (header, index) { return current[index] !== header; })) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
 }
 
@@ -790,13 +814,19 @@ function ensureTextColumns_(sheet, headers, columnNames) {
 }
 
 function formatTextRow_(sheet, headers, columnNames, row) {
-  columnNames.forEach(function (name) {
+  const ranges = columnNames.map(function (name) {
     const index = headers.indexOf(name);
-
-    if (index >= 0) {
-      sheet.getRange(row, index + 1).setNumberFormat("@");
+    if (index < 0) return "";
+    let column = index + 1;
+    let label = "";
+    while (column > 0) {
+      column -= 1;
+      label = String.fromCharCode(65 + column % 26) + label;
+      column = Math.floor(column / 26);
     }
-  });
+    return label + row;
+  }).filter(Boolean);
+  if (ranges.length) sheet.getRangeList(ranges).setNumberFormat("@");
 }
 
 function ensureColumnsByName_(sheet, headers) {
@@ -2099,12 +2129,7 @@ function accountUserMatchesFilter_(value, filter) {
 }
 
 function formatInventoryTextRow_(sheet, row) {
-  INVENTORY_TEXT_FIELDS.forEach(function (field) {
-    const column = INVENTORY_HEADERS.indexOf(field) + 1;
-    if (column > 0) {
-      sheet.getRange(row, column).setNumberFormat("@");
-    }
-  });
+  formatTextRow_(sheet, INVENTORY_HEADERS, INVENTORY_TEXT_FIELDS, row);
 }
 
 function formatInventoryTextColumns_(sheet, lastRow) {
@@ -2167,15 +2192,23 @@ function assignManyInventoryToOrder_(orderId, assignments, sharedAssignment) {
     seen[request.inventario_id] = true;
   });
 
+  const inventoryLastRow = inventorySheet.getLastRow();
+  const inventoryRows = inventoryLastRow > 1
+    ? inventorySheet.getRange(2, 1, inventoryLastRow - 1, INVENTORY_HEADERS.length).getValues() : [];
+  const inventoryById = new Map();
+  inventoryRows.forEach(function (row, index) {
+    inventoryById.set(String(row[0]), { row: index + 2, item: rowToInventoryItem_(row) });
+  });
   const fechaEntrega = String((sharedAssignment || {}).fecha_entrega || now).trim();
   const itemPairs = requests.map(function (request) {
-    var inventoryRow = findRowById_(inventorySheet, request.inventario_id);
+    var match = inventoryById.get(String(request.inventario_id));
 
-    if (inventoryRow < 1) {
+    if (!match) {
       throw new Error("Cuenta de inventario no encontrada.");
     }
 
-    var item = rowToInventoryItem_(inventorySheet.getRange(inventoryRow, 1, 1, INVENTORY_HEADERS.length).getValues()[0]);
+    var inventoryRow = match.row;
+    var item = match.item;
 
     if (item.estado !== "disponible") {
       throw new Error("La cuenta seleccionada no esta disponible.");

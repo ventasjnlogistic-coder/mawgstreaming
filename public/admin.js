@@ -470,6 +470,8 @@ function setAdminView(viewName, updateHash = true) {
 
   if (adminInitialLoadComplete) {
     ensureAdminViewModules(nextView);
+    if (nextView === "reportes") renderReports();
+    if (nextView === "dashboard") renderDashboard();
   }
 }
 
@@ -785,7 +787,41 @@ function normalizeSiteSetting(setting = {}) {
   };
 }
 
+const adminPendingReads = new Map();
+let adminReadGeneration = 0;
+const adminRequestMetrics = [];
+// Solo diagnostico local: no registra cuerpos, contactos ni respuestas.
+window.adminPerformance = {
+  snapshot: () => adminRequestMetrics.map((entry) => ({ ...entry })),
+  clear: () => { adminRequestMetrics.length = 0; },
+};
+
 async function apiRequest(url, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const shareRead = method === "GET" && !options.signal && !options.headers;
+  const key = shareRead ? String(url) : "";
+  if (key && adminPendingReads.has(key)) return adminPendingReads.get(key);
+  if (method !== "GET") {
+    adminReadGeneration += 1;
+    adminReadCache.clear();
+    adminPendingReads.clear();
+  }
+  const request = performApiRequest(url, options);
+  if (key) adminPendingReads.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (key && adminPendingReads.get(key) === request) adminPendingReads.delete(key);
+    if (method !== "GET") {
+      adminReadGeneration += 1;
+      adminReadCache.clear();
+      adminPendingReads.clear();
+    }
+  }
+}
+
+async function performApiRequest(url, options = {}) {
+  const generation = adminReadGeneration;
   const method = String(options.method || "GET").toUpperCase();
   const isAdminRead = method === "GET" && String(url).startsWith("/api/admin/") && !String(url).includes("/session");
   const cacheKey = isAdminRead ? String(url) : "";
@@ -809,7 +845,10 @@ async function apiRequest(url, options = {}) {
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
 
     try {
-      const response = await fetch(url, {
+      const startedAt = performance.now();
+      let response;
+      try {
+        response = await fetch(url, {
         credentials: "same-origin",
         headers: {
           ...(isFormData ? {} : { "Content-Type": "application/json" }),
@@ -818,6 +857,14 @@ async function apiRequest(url, options = {}) {
         ...options,
         signal: controller.signal,
       });
+      } finally {
+        adminRequestMetrics.push({
+          resource: String(url).split("?")[0].split("/").slice(0, 4).join("/"),
+          method, durationMs: Math.round(performance.now() - startedAt),
+          status: response?.status || 0, attempt: attempt + 1,
+        });
+        if (adminRequestMetrics.length > 200) adminRequestMetrics.shift();
+      }
 
       if (response.status === 401) {
         const returnTo = `${window.location.pathname}${window.location.hash}`;
@@ -841,11 +888,11 @@ async function apiRequest(url, options = {}) {
       }
 
       const data = await response.json();
-      if (cacheKey) {
+      if (cacheKey && generation === adminReadGeneration) {
         adminReadCache.set(cacheKey, {
           value: data,
-          freshUntil: now + ADMIN_READ_CACHE_TTL_MS,
-          staleUntil: now + ADMIN_READ_STALE_TTL_MS,
+          freshUntil: Date.now() + ADMIN_READ_CACHE_TTL_MS,
+          staleUntil: Date.now() + ADMIN_READ_STALE_TTL_MS,
         });
       }
       return data;
@@ -861,7 +908,7 @@ async function apiRequest(url, options = {}) {
     }
   }
 
-  if (cached && cached.staleUntil > Date.now() && lastError?.status !== 401 && lastError?.status !== 403) {
+  if (generation === adminReadGeneration && cached && cached.staleUntil > Date.now() && lastError?.status !== 401 && lastError?.status !== 403) {
     setStatus("Apps Script esta lento. Se muestran los ultimos datos disponibles; puedes reintentar el modulo.", true);
     return cached.value;
   }
@@ -1272,6 +1319,8 @@ function renderDashboardCard({ label, value, hint, target, tone = "neutral" }) {
 }
 
 function renderDashboard() {
+  const view = document.querySelector('[data-admin-view="dashboard"]');
+  if (!view || view.hidden || !userCanView("dashboard")) return;
   const metrics = getDashboardMetrics();
 
   if (dashboardUpdated) {
@@ -1397,278 +1446,30 @@ function renderDashboard() {
   }
 }
 
-function getReportRows() {
-  const sales = [];
-  const renewalSales = [];
-  const unsoldInventory = [];
-
-  orders
-    .map(normalizeInventoryOrder)
-    .filter((order) => order.estado === "entregado")
-    .forEach((order) => {
-      const assignments = normalizeOrderAssignments(order.asignaciones_inventario);
-      const date = order.fecha_entrega || order.actualizado_en || order.creado_en;
-      const channel = order.canal_venta || "web";
-
-      if (assignments.length > 0) {
-        assignments.forEach((assignment) => {
-          const inventory = inventoryItems.find((item) => item.inventario_id === assignment.inventario_id);
-          const revenue = toNumber(assignment.precio_venta);
-          const cost = toNumber(assignment.costo_proveedor !== "" ? assignment.costo_proveedor : inventory?.costo_proveedor);
-          const margin = assignment.margen_estimado !== "" ? toNumber(assignment.margen_estimado) : revenue - cost;
-
-          sales.push({
-            type: "venta",
-            date,
-            channel,
-            product: assignment.componente_nombre || inventory?.producto_nombre || assignment.producto_id || order.producto_nombre || "Producto",
-            provider: assignment.proveedor || inventory?.proveedor || order.proveedor || "Sin proveedor",
-            revenue,
-            cost,
-            margin,
-          });
-        });
-        return;
-      }
-
-      const revenue = toNumber(order.producto_precio);
-      const cost = toNumber(order.costo_proveedor);
-      sales.push({
-        type: "venta",
-        date,
-        channel,
-        product: order.producto_nombre || order.producto_id || "Producto",
-        provider: order.proveedor || "Sin proveedor",
-        revenue,
-        cost,
-        margin: revenue - cost,
-      });
-    });
-
-  renewals
-    .map(normalizeRenewal)
-    .filter((renewal) => ["pagado", "renovado"].includes(renewal.estado))
-    .forEach((renewal) => {
-      const inventory = inventoryItems.find((item) => item.inventario_id === renewal.inventario_id);
-      const revenue = toNumber(renewal.monto);
-      const cost = toNumber(inventory?.costo_proveedor);
-
-      renewalSales.push({
-        type: "renovacion",
-        date: renewal.fecha_confirmacion || renewal.fecha_pago || renewal.actualizado_en || renewal.creado_en,
-        channel: "renovacion",
-        product: renewal.producto_nombre || inventory?.producto_nombre || "Renovacion",
-        provider: inventory?.proveedor || "Sin proveedor",
-        revenue,
-        cost,
-        margin: revenue - cost,
-      });
-    });
-
-  inventoryItems.map(normalizeInventoryItem).filter(isUnsoldInventoryItem).forEach((item) => {
-    const product = products.find((entry) => productValueMatches(entry.id || entry.nombre, item.producto_id || item.producto_nombre));
-    const cost = toNumber(item.costo_proveedor);
-    const potentialRevenue = toNumber(item.precio_venta_sugerido !== "" ? item.precio_venta_sugerido : product?.precio);
-
-    unsoldInventory.push({
-      type: "inventario",
-      date: item.fecha_compra || item.creado_en,
-      channel: "stock",
-      product: item.producto_nombre || product?.nombre || item.producto_id || "Producto",
-      provider: item.proveedor || "Sin proveedor",
-      revenue: potentialRevenue,
-      cost,
-      margin: potentialRevenue - cost,
-      status: item.estado || "disponible",
-    });
-  });
-
-  return { sales, renewalSales, unsoldInventory, all: [...sales, ...renewalSales] };
-}
-
-function isUnsoldInventoryItem(item) {
-  const status = String(item.estado || "").toLowerCase();
-
-  if (item.pedido_id || status === "ocupado" || status === "baja") {
-    return false;
-  }
-
-  return true;
-}
-
-function groupReportRows(rows, keyGetter) {
-  return rows.reduce((groups, row) => {
-    const key = keyGetter(row) || "Sin dato";
-    const current = groups.get(key) || { label: key, count: 0, revenue: 0, cost: 0, margin: 0 };
-    current.count += 1;
-    current.revenue += row.revenue;
-    current.cost += row.cost;
-    current.margin += row.margin;
-    groups.set(key, current);
-    return groups;
-  }, new Map());
-}
-
-function sortReportGroups(groups) {
-  return [...groups.values()].sort((left, right) => right.margin - left.margin || right.revenue - left.revenue || left.label.localeCompare(right.label));
-}
-
-function getMonthDateRange(offset = 0) {
-  const today = new Date();
-  const start = new Date(today.getFullYear(), today.getMonth() + offset, 1);
-  const end = new Date(today.getFullYear(), today.getMonth() + offset + 1, 0);
-
-  start.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-  return { start, end };
-}
-
-function getReportFilters() {
-  const period = reportPeriodFilter?.value || "current-month";
-  let range = null;
-
-  if (period === "current-month") {
-    range = getMonthDateRange(0);
-  } else if (period === "last-month") {
-    range = getMonthDateRange(-1);
-  } else if (period === "custom") {
-    range = {
-      start: getDateOnly(reportStartDate?.value),
-      end: getDateOnly(reportEndDate?.value),
+let adminReportsLoading = null;
+function loadAdminReports() {
+  if (window.mawgReports) return Promise.resolve(window.mawgReports);
+  if (adminReportsLoading) return adminReportsLoading;
+  adminReportsLoading = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "/admin-reports.js";
+    script.onload = () => {
+      if (window.mawgReports) resolve(window.mawgReports);
+      else reject(new Error("No se pudo iniciar Reportes."));
     };
-  }
-
-  return {
-    period,
-    range,
-    provider: reportProviderFilter?.value || "",
-    channel: reportChannelFilter?.value || "",
-  };
-}
-
-function isReportDateInRange(value, range) {
-  if (!range || (!range.start && !range.end)) {
-    return true;
-  }
-
-  const date = getDateOnly(value);
-
-  if (!date) {
-    return false;
-  }
-
-  if (range.start && date < range.start) {
-    return false;
-  }
-
-  if (range.end && date > range.end) {
-    return false;
-  }
-
-  return true;
-}
-
-function filterReportMovementRows(rows, filters) {
-  return rows.filter((row) => {
-    const matchesDate = isReportDateInRange(row.date, filters.range);
-    const matchesProvider = !filters.provider || row.provider === filters.provider;
-    const matchesChannel = !filters.channel || row.channel === filters.channel;
-    return matchesDate && matchesProvider && matchesChannel;
-  });
-}
-
-function filterReportInventoryRows(rows, filters) {
-  return rows.filter((row) => !filters.provider || row.provider === filters.provider);
-}
-
-function renderReportFilterOptions(rows) {
-  const currentProvider = reportProviderFilter?.value || "";
-  const currentChannel = reportChannelFilter?.value || "";
-  const providers = [...new Set([...rows.sales, ...rows.renewalSales, ...rows.unsoldInventory].map((row) => row.provider).filter(Boolean))].sort();
-  const channels = [...new Set([...rows.sales, ...rows.renewalSales].map((row) => row.channel).filter(Boolean))].sort();
-
-  if (reportProviderFilter) {
-    reportProviderFilter.innerHTML = [
-      '<option value="">Todos los proveedores</option>',
-      ...providers.map((provider) => `<option value="${escapeHtml(provider)}">${escapeHtml(provider)}</option>`),
-    ].join("");
-    reportProviderFilter.value = providers.includes(currentProvider) ? currentProvider : "";
-  }
-
-  if (reportChannelFilter) {
-    reportChannelFilter.innerHTML = [
-      '<option value="">Todos los canales</option>',
-      ...channels.map((channel) => `<option value="${escapeHtml(channel)}">${escapeHtml(channel)}</option>`),
-    ].join("");
-    reportChannelFilter.value = channels.includes(currentChannel) ? currentChannel : "";
-  }
-}
-
-function renderReportRows(container, groups, emptyMessage, columns) {
-  if (!container) {
-    return;
-  }
-
-  if (groups.length === 0) {
-    container.innerHTML = `<tr><td colspan="${columns}" class="report-empty">${escapeHtml(emptyMessage)}</td></tr>`;
-    return;
-  }
-
-  container.innerHTML = groups
-    .map(
-      (group) => `
-        <tr>
-          <td>${escapeHtml(group.label)}</td>
-          <td>${escapeHtml(group.count)}</td>
-          <td>${escapeHtml(formatReportMoney(group.revenue))}</td>
-          ${columns >= 5 ? `<td>${escapeHtml(formatReportMoney(group.cost))}</td>` : ""}
-          <td class="${group.margin < 0 ? "is-negative" : "is-positive"}">${escapeHtml(formatReportMoney(group.margin))}</td>
-        </tr>
-      `
-    )
-    .join("");
+    script.onerror = () => reject(new Error("No se pudo cargar Reportes. Vuelve a abrir la seccion para reintentar."));
+    document.head.appendChild(script);
+  }).catch((error) => { adminReportsLoading = null; throw error; });
+  return adminReportsLoading;
 }
 
 function renderReports() {
-  const rows = getReportRows();
-  renderReportFilterOptions(rows);
-  const filters = getReportFilters();
-  const filteredSales = filterReportMovementRows(rows.sales, filters);
-  const filteredRenewals = filterReportMovementRows(rows.renewalSales, filters);
-  const filteredInventory = filterReportInventoryRows(rows.unsoldInventory, filters);
-  const filteredMovements = [...filteredSales, ...filteredRenewals];
-  const totalRevenue = sumMoney(filteredMovements.map((row) => row.revenue));
-  const totalCost = sumMoney(filteredMovements.map((row) => row.cost));
-  const totalMargin = sumMoney(filteredMovements.map((row) => row.margin));
-  const unsoldInventoryCost = sumMoney(filteredInventory.map((row) => row.cost));
-  const unsoldInventoryPotential = sumMoney(filteredInventory.map((row) => row.revenue));
-  const unsoldInventoryMargin = sumMoney(filteredInventory.map((row) => row.margin));
-  const realizedHistoricMargin = sumMoney(filteredMovements.map((row) => row.margin));
-  const adjustedMargin = realizedHistoricMargin - unsoldInventoryCost;
-
-  if (reportsUpdated) {
-    reportsUpdated.textContent = `Actualizado ${new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}`;
-  }
-
-  if (reportsSummary) {
-    reportsSummary.innerHTML = [
-      renderDashboardCard({ label: "Ingresos periodo", value: formatReportMoney(totalRevenue), hint: `${filteredMovements.length} movimientos`, target: "reportes", tone: "ok" }),
-      renderDashboardCard({ label: "Costos periodo", value: formatReportMoney(totalCost), hint: "Costo proveedor estimado", target: "reportes", tone: totalCost ? "warning" : "neutral" }),
-      renderDashboardCard({ label: "Margen periodo", value: formatReportMoney(totalMargin), hint: "Ventas + renovaciones", target: "reportes", tone: totalMargin >= 0 ? "ok" : "danger" }),
-      renderDashboardCard({ label: "Stock no vendido", value: formatReportMoney(unsoldInventoryCost), hint: `${filteredInventory.length} cuentas actuales`, target: "inventario", tone: unsoldInventoryCost ? "warning" : "ok" }),
-      renderDashboardCard({ label: "Venta potencial", value: formatReportMoney(unsoldInventoryPotential), hint: `Margen pot. ${formatReportMoney(unsoldInventoryMargin)}`, target: "inventario", tone: "neutral" }),
-      renderDashboardCard({ label: "Margen ajustado", value: formatReportMoney(adjustedMargin), hint: "Margen periodo - stock actual", target: "reportes", tone: adjustedMargin >= 0 ? "ok" : "danger" }),
-      renderDashboardCard({ label: "Ventas nuevas", value: filteredSales.length, hint: formatReportMoney(sumMoney(filteredSales.map((row) => row.revenue))), target: "compras", tone: "neutral" }),
-      renderDashboardCard({ label: "Renovaciones", value: filteredRenewals.length, hint: formatReportMoney(sumMoney(filteredRenewals.map((row) => row.revenue))), target: "renovaciones", tone: "neutral" }),
-      renderDashboardCard({ label: "Margen realizado", value: formatReportMoney(realizedHistoricMargin), hint: `${filteredMovements.length} movimientos filtrados`, target: "reportes", tone: "neutral" }),
-    ].join("");
-  }
-
-  renderReportRows(reportProductRows, sortReportGroups(groupReportRows(filteredSales, (row) => row.product)).slice(0, 12), "No hay ventas entregadas con los filtros actuales.", 5);
-  renderReportRows(reportChannelRows, sortReportGroups(groupReportRows(filteredSales, (row) => row.channel)).slice(0, 12), "No hay canales con ventas en los filtros actuales.", 4);
-  renderReportRows(reportProviderRows, sortReportGroups(groupReportRows(filteredSales, (row) => row.provider)).slice(0, 12), "No hay proveedores vinculados a ventas con los filtros actuales.", 5);
-  renderReportRows(reportRenewalRows, sortReportGroups(groupReportRows(filteredRenewals, (row) => row.product)).slice(0, 12), "No hay renovaciones pagadas o renovadas con los filtros actuales.", 4);
-  renderReportRows(reportInventoryRows, sortReportGroups(groupReportRows(filteredInventory, (row) => row.product)).slice(0, 12), "No hay cuentas no vendidas para costear con los filtros actuales.", 5);
+  const view = document.querySelector('[data-admin-view="reportes"]');
+  if (!view || view.hidden || !userCanView("reportes")) return;
+  if (window.mawgReports) { window.mawgReports.render(); return; }
+  loadAdminReports().then(() => {
+    if (!view.hidden) window.mawgReports.render();
+  }).catch((error) => setStatus(error.message, true));
 }
 
 async function runWithConcurrency(tasks, limit = 2) {
@@ -2565,7 +2366,7 @@ function renderProductCard(product) {
   const venderSinStock = String(product.vender || "").trim().toLowerCase() === "si";
   const disponible = estado === "disponible";
   const imagen = product.imagen
-    ? `<img src="${escapeHtml(product.imagen)}" alt="${escapeHtml(product.nombre)}" loading="lazy" />`
+    ? `<img src="${escapeHtml(product.imagen)}" alt="${escapeHtml(product.nombre)}" loading="lazy" decoding="async" />`
     : `<div class="product-placeholder" aria-hidden="true">${escapeHtml(product.tipo || "Producto")}</div>`;
 
   return `
@@ -2611,6 +2412,53 @@ function updatePreview() {
   if (productPreview) {
     productPreview.innerHTML = renderProductCard(normalizeProduct(getFormProduct()));
   }
+}
+
+const adminListPages = new Map();
+const ADMIN_PAGE_SIZE = 30;
+
+function debounceAdminSearch(callback, delay = 200) {
+  let timer;
+  return (...args) => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => callback(...args), delay);
+  };
+}
+
+function paginateAdminList(container, items, render, filters = []) {
+  let state = adminListPages.get(container);
+  if (!state) {
+    const nav = document.createElement("nav");
+    nav.className = "admin-pagination";
+    nav.setAttribute("aria-label", "Paginas de la lista");
+    const previous = document.createElement("button");
+    const next = document.createElement("button");
+    const label = document.createElement("span");
+    label.setAttribute("aria-live", "polite");
+    previous.type = next.type = "button";
+    previous.className = next.className = "button button-secondary compact-button";
+    previous.textContent = "Anterior";
+    next.textContent = "Siguiente";
+    nav.append(previous, label, next);
+    container.insertAdjacentElement("afterend", nav);
+    state = { page: 1, filterKey: "", nav, previous, next, label };
+    previous.addEventListener("click", () => { state.page -= 1; render(); });
+    next.addEventListener("click", () => { state.page += 1; render(); });
+    adminListPages.set(container, state);
+  }
+  const filterKey = JSON.stringify(filters.map((field) => field?.value || ""));
+  if (filterKey !== state.filterKey) state.page = 1;
+  state.filterKey = filterKey;
+  const pages = Math.max(1, Math.ceil(items.length / ADMIN_PAGE_SIZE));
+  state.page = Math.max(1, Math.min(state.page, pages));
+  const start = (state.page - 1) * ADMIN_PAGE_SIZE;
+  state.nav.hidden = items.length <= ADMIN_PAGE_SIZE;
+  state.previous.disabled = state.page === 1;
+  state.next.disabled = state.page === pages;
+  state.label.textContent = items.length
+    ? `${start + 1}-${Math.min(start + ADMIN_PAGE_SIZE, items.length)} de ${items.length} | Pagina ${state.page}/${pages}`
+    : "Sin resultados";
+  return items.slice(start, start + ADMIN_PAGE_SIZE);
 }
 
 function renderList() {
@@ -2786,12 +2634,14 @@ function renderInventoryList() {
     inventoryCount.textContent = `${filtered.length}/${inventoryItems.length} ${inventoryItems.length === 1 ? "cuenta" : "cuentas"}`;
   }
 
+  const visible = paginateAdminList(inventoryList, sorted, renderInventoryList, [searchInventory, inventoryStatusFilter, inventoryProductFilter, inventoryClientFilter, inventoryEmailFilter, inventoryPhoneFilter, inventoryDueStartFilter, inventoryDueEndFilter]);
+
   if (sorted.length === 0) {
     inventoryList.innerHTML = '<p class="catalog-message">No hay cuentas para mostrar.</p>';
     return;
   }
 
-  inventoryList.innerHTML = sorted
+  inventoryList.innerHTML = visible
     .map((item) => {
       const isActive = item.inventario_id === selectedInventoryId;
       const expirationStatus = getExpirationStatus(item.fecha_vencimiento_cliente);
@@ -2840,7 +2690,10 @@ function fillInventoryForm(item) {
     }
   });
 
-  renderInventoryList();
+  // Cambiar la seleccion no requiere volver a crear las filas visibles.
+  inventoryList?.querySelectorAll("[data-id]").forEach((row) => {
+    row.classList.toggle("is-active", row.dataset.id === selectedInventoryId);
+  });
 }
 
 function getInventoryFormItem() {
@@ -3422,13 +3275,14 @@ function renderRenewalList() {
   }
 
   const filtered = getFilteredRenewals();
+  const visible = paginateAdminList(renewalList, filtered, renderRenewalList, [searchRenewals, renewalStatusFilter]);
 
   if (filtered.length === 0) {
     renewalList.innerHTML = '<p class="catalog-message">No hay renovaciones para mostrar.</p>';
     return;
   }
 
-  renewalList.innerHTML = filtered
+  renewalList.innerHTML = visible
     .map((renewal) => {
       const isActive = renewal.renovacion_id === selectedRenewalId;
       return `
@@ -3451,13 +3305,14 @@ function renderRenewalDueList() {
   }
 
   const dueItems = getDueInventoryItems();
+  const visible = paginateAdminList(renewalDueList, dueItems, renderRenewalDueList);
 
   if (dueItems.length === 0) {
     renewalDueList.innerHTML = '<p class="catalog-message">No hay cuentas ocupadas vencidas o por vencer en los proximos 7 dias.</p>';
     return;
   }
 
-  renewalDueList.innerHTML = dueItems
+  renewalDueList.innerHTML = visible
     .map((item) => {
       const expiration = getExpirationStatus(item.fecha_vencimiento_cliente);
       return `
@@ -4213,8 +4068,9 @@ function getFilteredOrders() {
 }
 
 function renderOrders() {
+  const filteredOrders = getFilteredOrders();
   if (orderCount) {
-    const filteredCount = getFilteredOrders().length;
+    const filteredCount = filteredOrders.length;
     orderCount.textContent = `${filteredCount}/${orders.length} ${orders.length === 1 ? "pedido" : "pedidos"}`;
   }
 
@@ -4223,14 +4079,14 @@ function renderOrders() {
   }
 
   renderOrderChannelOptions();
-  const filteredOrders = getFilteredOrders();
+  const visible = paginateAdminList(orderList, filteredOrders, renderOrders, [searchOrders, orderStatusFilter, orderChannelFilter, orderStartDate, orderEndDate]);
 
   if (filteredOrders.length === 0) {
     orderList.innerHTML = '<p class="catalog-message">No hay pedidos registrados.</p>';
     return;
   }
 
-  orderList.innerHTML = filteredOrders
+  orderList.innerHTML = visible
     .map((order) => {
       const proof = order.comprobante_url
         ? `<a href="${escapeHtml(order.comprobante_url)}" target="_blank" rel="noreferrer">Abrir comprobante</a>`
@@ -4618,8 +4474,8 @@ productList?.addEventListener("click", (event) => {
   }
 });
 
-searchProducts?.addEventListener("input", renderList);
-searchOrders?.addEventListener("input", renderOrders);
+searchProducts?.addEventListener("input", debounceAdminSearch(renderList));
+searchOrders?.addEventListener("input", debounceAdminSearch(renderOrders));
 orderStatusFilter?.addEventListener("change", renderOrders);
 orderChannelFilter?.addEventListener("change", renderOrders);
 orderStartDate?.addEventListener("change", renderOrders);
@@ -4642,12 +4498,12 @@ clearOrderFiltersButton?.addEventListener("click", () => {
   }
   renderOrders();
 });
-searchInventory?.addEventListener("input", renderInventoryList);
+searchInventory?.addEventListener("input", debounceAdminSearch(renderInventoryList));
 inventoryStatusFilter?.addEventListener("change", renderInventoryList);
 inventoryProductFilter?.addEventListener("change", renderInventoryList);
-inventoryClientFilter?.addEventListener("input", renderInventoryList);
-inventoryEmailFilter?.addEventListener("input", renderInventoryList);
-inventoryPhoneFilter?.addEventListener("input", renderInventoryList);
+inventoryClientFilter?.addEventListener("input", debounceAdminSearch(renderInventoryList));
+inventoryEmailFilter?.addEventListener("input", debounceAdminSearch(renderInventoryList));
+inventoryPhoneFilter?.addEventListener("input", debounceAdminSearch(renderInventoryList));
 inventoryDueStartFilter?.addEventListener("change", renderInventoryList);
 inventoryDueEndFilter?.addEventListener("change", renderInventoryList);
 clearInventoryFiltersButton?.addEventListener("click", () => {
@@ -4667,11 +4523,11 @@ clearInventoryFiltersButton?.addEventListener("click", () => {
   });
   renderInventoryList();
 });
-searchProviders?.addEventListener("input", renderProviderList);
-searchProviderPurchases?.addEventListener("input", renderProviderPurchases);
+searchProviders?.addEventListener("input", debounceAdminSearch(renderProviderList));
+searchProviderPurchases?.addEventListener("input", debounceAdminSearch(renderProviderPurchases));
 providerPurchaseStatusFilter?.addEventListener("change", renderProviderPurchases);
 providerPurchaseInventoryFilter?.addEventListener("change", renderProviderPurchases);
-searchRenewals?.addEventListener("input", renderRenewalList);
+searchRenewals?.addEventListener("input", debounceAdminSearch(renderRenewalList));
 renewalStatusFilter?.addEventListener("change", renderRenewalList);
 reportPeriodFilter?.addEventListener("change", renderReports);
 reportStartDate?.addEventListener("change", renderReports);

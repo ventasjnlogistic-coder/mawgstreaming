@@ -3229,3 +3229,7 @@ textarea:focus,
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.admin-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: .85rem; }
+.admin-pagination[hidden] { display: none; }
+.admin-pagination button:disabled { opacity: .45; cursor: default; }
