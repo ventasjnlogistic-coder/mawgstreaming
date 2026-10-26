@@ -29,3 +29,12 @@ preview_id = "ab345ac3dcde49329e48b3bc8ed93093"
 binding = "DB"
 database_name = "mawg-streaming-db"
 database_id = "d066af57-af14-47f4-95d0-3101cb4a1dee"
+
+# Estado de seguridad compartido; independiente de OPERATIONS_STORAGE y D1.
+[[durable_objects.bindings]]
+name = "SECURITY_STATE"
+class_name = "SecurityState"
+
+[[migrations]]
+tag = "security-v1"
+new_sqlite_classes = ["SecurityState"]

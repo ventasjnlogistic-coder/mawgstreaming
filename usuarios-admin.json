@@ -1,0 +1,12 @@
+[
+  {
+    "usuario": "web-admin",
+    "nombre": "Administrador",
+    "rol": "admin",
+    "password": "scrypt$v1$751d0097749cc9ee209baf4845ed961c$0d03d38e094d3da66c2069ce32dd81beb219e6fd06b6e512119f94bfd3e1118d",
+    "estado": "activo",
+    "permisos": [
+      "*"
+    ]
+  }
+]

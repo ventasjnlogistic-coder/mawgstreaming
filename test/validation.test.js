@@ -21,7 +21,7 @@ test("normaliza enlaces de Drive para imagenes de productos", () => {
     imagen: "https://drive.google.com/file/d/1AbC-DEF_123/view?usp=sharing",
   });
 
-  assert.equal(product.imagen, "https://drive.google.com/thumbnail?id=1AbC-DEF_123&sz=w1200");
+  assert.equal(product.imagen, "https://drive.google.com/thumbnail?id=1AbC-DEF_123&sz=w800");
 });
 
 test("rechaza productos sin nombre", () => {

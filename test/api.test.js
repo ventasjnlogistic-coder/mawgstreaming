@@ -156,6 +156,8 @@ test.before(async () => {
           estado: "activo",
           permisos: "*",
         },
+        { usuario: "catalogo-test", password: "catalog-secret", estado: "activo", permisos: "productos" },
+        { usuario: "reportes-test", password: "reports-secret", estado: "activo", permisos: "reportes" },
         {
           usuario: "operador-test",
           nombre: "Operador Test",
@@ -200,7 +202,7 @@ test("protege recursos de admin hasta iniciar sesion", async () => {
     method: "POST",
     body: JSON.stringify({ usuario: "admin-test", password: "secret-test" }),
   });
-  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const cookie = login.response.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
   const authedAdminScript = await request("/admin.js", { headers: { Cookie: cookie } });
 
   assert.equal(adminPage.response.status, 302);
@@ -216,7 +218,7 @@ test("permite iniciar sesion con usuario de roles administrables", async () => {
     method: "POST",
     body: JSON.stringify({ usuario: "operador-test", password: "operator-secret" }),
   });
-  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const cookie = login.response.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
   const session = await request("/api/admin/session", { headers: { Cookie: cookie } });
 
   assert.equal(login.response.status, 200);
@@ -231,7 +233,7 @@ test("bloquea escrituras fuera de permisos del rol", async () => {
     method: "POST",
     body: JSON.stringify({ usuario: "operador-test", password: "operator-secret" }),
   });
-  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const cookie = login.response.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
   const denied = await request("/api/admin/productos", {
     method: "POST",
     headers: { Cookie: cookie },
@@ -268,7 +270,7 @@ test("administra plantillas de mensajes", async () => {
     method: "POST",
     body: JSON.stringify({ usuario: "admin-test", password: "secret-test" }),
   });
-  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const cookie = login.response.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
   const templates = await request("/api/admin/plantillas", { headers: { Cookie: cookie } });
   const updated = await request("/api/admin/plantillas/entrega", {
     method: "PUT",
@@ -315,7 +317,7 @@ test("crea y confirma renovaciones sincronizando inventario", async () => {
     method: "POST",
     body: JSON.stringify({ usuario: "admin-test", password: "secret-test" }),
   });
-  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const cookie = login.response.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
   const created = await request("/api/admin/renovaciones", {
     method: "POST",
     headers: { Cookie: cookie },
@@ -351,7 +353,7 @@ test("administra proveedores y compras de proveedor", async () => {
     method: "POST",
     body: JSON.stringify({ usuario: "admin-test", password: "secret-test" }),
   });
-  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const cookie = login.response.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
   const provider = await request("/api/admin/proveedores", {
     method: "POST",
     headers: { Cookie: cookie },
@@ -406,7 +408,7 @@ test("administra proveedores y compras de proveedor", async () => {
   assert.equal(received.data.inventario_generado, 4);
   assert.equal(receivedAgain.data.inventario_generado, 0);
   assert.equal(purchaseItems.length, 4);
-  assert.equal(purchaseItems[0].estado, "pendiente_revision");
+  assert.equal(purchaseItems[0].estado, "reservado");
   assert.equal(purchaseItems[0].costo_proveedor, 8);
   assert.equal(purchaseItems[0].cuenta_usuario, "cuenta@proveedor.com");
   assert.equal(purchaseItems[0].cuenta_clave, "clave-proveedor");
@@ -422,7 +424,7 @@ test("crea ventas manuales desde admin con canal de venta", async () => {
     method: "POST",
     body: JSON.stringify({ usuario: "admin-test", password: "secret-test" }),
   });
-  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const cookie = login.response.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
   const form = new FormData();
   form.set("producto_id", "netflix");
   form.set("producto_precio", "18");
@@ -458,7 +460,7 @@ test("asigna combo guardando precio de venta individual por cuenta", async () =>
     method: "POST",
     body: JSON.stringify({ usuario: "admin-test", password: "secret-test" }),
   });
-  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const cookie = login.response.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
   const orderResponse = await request("/api/pedidos", {
     method: "POST",
     body: JSON.stringify({ producto_id: "combo-stream" }),
@@ -517,7 +519,7 @@ test("respeta precio de venta manual por componente al asignar combo", async () 
     method: "POST",
     body: JSON.stringify({ usuario: "admin-test", password: "secret-test" }),
   });
-  const cookie = login.response.headers.get("set-cookie").split(";")[0];
+  const cookie = login.response.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
   const orderResponse = await request("/api/pedidos", {
     method: "POST",
     body: JSON.stringify({ producto_id: "combo-stream" }),
@@ -572,4 +574,95 @@ test("respeta precio de venta manual por componente al asignar combo", async () 
   assert.equal(assignments[1].margen_estimado, 15);
   assert.equal(netflixItem.precio_venta_sugerido, 14);
   assert.equal(disneyItem.precio_venta_sugerido, 22);
+});
+
+async function loginCookie(usuario, password, previousCookie) {
+  const result = await request("/api/admin/login", {
+    method: "POST", body: JSON.stringify({ usuario, password }),
+    ...(previousCookie ? { headers: { Cookie: previousCookie } } : {}),
+  });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.data.user.password, undefined);
+  return result.response.headers.getSetCookie().find((value) => value.startsWith("streamhub.sid=")).split(";")[0];
+}
+
+test("restringe lecturas y dashboard segun permisos sin impedir alertas operativas", async () => {
+  const catalogCookie = await loginCookie("catalogo-test", "catalog-secret");
+  for (const resource of ["inventario", "pedidos", "proveedores", "compras-proveedor", "renovaciones", "auditoria", "plantillas"]) {
+    const result = await request(`/api/admin/${resource}`, { headers: { Cookie: catalogCookie } });
+    assert.equal(result.response.status, 403, resource);
+    assert.equal(result.response.headers.get("cache-control"), "no-store");
+  }
+  const snapshot = await request("/api/admin/dashboard-snapshot", { headers: { Cookie: catalogCookie } });
+  assert.equal(snapshot.response.status, 200);
+  assert.ok(snapshot.data.products.length > 0);
+  for (const key of ["inventory", "orders", "providers", "provider_purchases", "renewals"]) assert.deepEqual(snapshot.data[key], []);
+  const operator = await loginCookie("operador-test", "operator-secret");
+  assert.equal((await request("/api/admin/plantillas", { headers: { Cookie: operator } })).response.status, 200);
+  assert.equal((await request("/api/admin/auditoria", { headers: { Cookie: operator } })).response.status, 403);
+});
+
+test("reportes no recibe credenciales ni datos de entrega en lecturas o dashboard", async () => {
+  const cookie = await loginCookie("reportes-test", "reports-secret");
+  for (const resource of ["inventario", "pedidos", "compras-proveedor", "dashboard-snapshot"]) {
+    const result = await request(`/api/admin/${resource}`, { headers: { Cookie: cookie } });
+    assert.equal(result.response.status, 200);
+    assert.doesNotMatch(JSON.stringify(result.data), /"(?:cuenta_clave|cuenta_usuario|contrasena_bot|usuario_bot|pin|datos_entrega)":/);
+  }
+});
+
+test("migra las claves locales a hashes y no guarda texto plano", async () => {
+  const users = JSON.parse(await fs.readFile(process.env.USERS_JSON_PATH, "utf8"));
+  for (const user of users) assert.match(user.password, /^scrypt\$v1\$/);
+});
+
+test("logout invalida la sesion aunque se reutilice la cookie anterior", async () => {
+  const cookie = await loginCookie("operador-test", "operator-secret");
+  assert.equal((await request("/api/admin/logout", { method: "POST", headers: { Cookie: cookie }, body: "{}" })).response.status, 200);
+  assert.equal((await request("/api/admin/inventario", { headers: { Cookie: cookie } })).response.status, 401);
+});
+
+test("ignora la antigua cookie de autenticacion aun con una firma valida", async () => {
+  const crypto = require("node:crypto");
+  const payload = Buffer.from(JSON.stringify({ u: "admin-test", p: ["*"], e: Date.now() + 60000 })).toString("base64url");
+  const signature = crypto.createHmac("sha256", process.env.SESSION_SECRET).update(payload).digest("base64url");
+  const result = await request("/api/admin/inventario", { headers: { Cookie: `streamhub.auth=${payload}.${signature}` } });
+  assert.equal(result.response.status, 401);
+});
+
+test("regenera el identificador al iniciar sesion y revoca el anterior", async () => {
+  const original = await loginCookie("operador-test", "operator-secret");
+  const renewed = await loginCookie("operador-test", "operator-secret", original);
+  assert.notEqual(original, renewed);
+  assert.equal((await request("/api/admin/inventario", { headers: { Cookie: original } })).response.status, 401);
+  assert.equal((await request("/api/admin/inventario", { headers: { Cookie: renewed } })).response.status, 200);
+});
+
+test("solo un administrador puede revocar sesiones y el usuario puede volver a entrar", async () => {
+  const operator = await loginCookie("operador-test", "operator-secret");
+  const body = JSON.stringify({ usuario: "operador-test" });
+  assert.equal((await request("/api/admin/sesiones/revocar", { method: "POST", headers: { Cookie: operator }, body })).response.status, 403);
+  const admin = await loginCookie("admin-test", "secret-test");
+  assert.equal((await request("/api/admin/sesiones/revocar", { method: "POST", headers: { Cookie: admin }, body })).response.status, 200);
+  assert.equal((await request("/api/admin/inventario", { headers: { Cookie: operator } })).response.status, 401);
+  const fresh = await loginCookie("operador-test", "operator-secret");
+  assert.equal((await request("/api/admin/inventario", { headers: { Cookie: fresh } })).response.status, 200);
+});
+
+test("protege diagnosticos internos y rechaza credenciales mal formadas", async () => {
+  for (const route of ["config", "users"]) assert.equal((await request(`/api/health/${route}`)).response.status, 401);
+  for (const body of [{ usuario: {}, password: "x" }, { usuario: "x", password: [] }, { usuario: "x", password: "" }]) {
+    assert.equal((await request("/api/admin/login", { method: "POST", body: JSON.stringify(body) })).response.status, 400);
+  }
+});
+
+test("la clave de entorno no anula una cuenta desactivada en el almacen", async () => {
+  const file = process.env.USERS_JSON_PATH;
+  const original = await fs.readFile(file, "utf8");
+  const users = JSON.parse(original);
+  users.find((user) => user.usuario === "admin-test").estado = "inactivo";
+  await fs.writeFile(file, JSON.stringify(users));
+  try {
+    assert.equal((await request("/api/admin/login", { method: "POST", body: JSON.stringify({ usuario: "admin-test", password: "secret-test" }) })).response.status, 401);
+  } finally { await fs.writeFile(file, original); }
 });

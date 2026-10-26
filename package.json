@@ -13,9 +13,10 @@
     "audit:assets": "node scripts/audit-assets.js",
     "build": "node scripts/build-assets.js",
     "optimize:images": "node scripts/optimize-images.js",
-    "test": "node --test otros/pruebas/validation.test.js otros/pruebas/api.test.js otros/pruebas/web-smoke.test.js",
-    "test:api": "node --test otros/pruebas/api.test.js",
-    "test:web": "node --test otros/pruebas/web-smoke.test.js"
+    "test": "node --test test/*.test.js",
+    "test:api": "node --test test/api.test.js",
+    "test:web": "node --test test/web-smoke.test.js test/admin-alerts.test.js",
+    "test:worker": "wrangler deploy --dry-run --outdir .tmp-worker-check && node --test test/worker-runtime.check.js"
   },
   "dependencies": {
     "busboy": "^1.6.0",

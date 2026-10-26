@@ -1,4 +1,4 @@
-const { getDefaultMessageTemplates, normalizeMessageTemplate } = require("./validation");
+const { normalizeMessageTemplate } = require("./validation");
 
 class AppsScriptMessageTemplateStore {
   constructor(config) {
@@ -38,13 +38,9 @@ class AppsScriptMessageTemplateStore {
   }
 
   async listTemplates() {
-    try {
-      const data = await this.request(this.withToken({ action: "templates.list" }));
-      const templates = Array.isArray(data.templates) ? data.templates : [];
-      return templates.length ? templates.map(normalizeMessageTemplate) : getDefaultMessageTemplates();
-    } catch {
-      return getDefaultMessageTemplates();
-    }
+    const data = await this.request(this.withToken({ action: "templates.list" }));
+    if (!Array.isArray(data.templates)) throw new Error("Respuesta de plantillas invalida.");
+    return data.templates.map(normalizeMessageTemplate);
   }
 
   async updateTemplate(id, template) {

@@ -117,7 +117,7 @@ test.before(async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ usuario: "web-admin", password: "web-secret" }),
   });
-  authCookie = loginResponse.headers.get("set-cookie").split(";")[0];
+  authCookie = loginResponse.headers.getSetCookie().find((cookie) => cookie.startsWith("streamhub.sid=")).split(";")[0];
 });
 
 test.after(async () => {

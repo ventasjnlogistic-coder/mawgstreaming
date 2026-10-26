@@ -320,12 +320,17 @@ function doPost(e) {
       });
     }
 
-    if (action === "users.auth") {
-      return jsonResponse(authenticateAdminUser_(payload.usuario, payload.password));
-    }
-
     if (!isValidToken_(payload.token)) {
       return jsonResponse({ ok: false, error: "Token de administracion invalido." });
+    }
+
+    // Las credenciales solo viajan al backend autenticado; el navegador nunca
+    // consulta esta accion. La verificacion scrypt se ejecuta en Node/Workers.
+    if (action === "users.credentials") {
+      return jsonResponse({ ok: true, user: getAdminCredentials_(payload.usuario) });
+    }
+    if (action === "users.password-upgrade") {
+      return jsonResponse(upgradeAdminPassword_(payload.usuario, payload.previous, payload.hash));
     }
 
     if (action === "dashboard.snapshot") {
@@ -1532,27 +1537,36 @@ function seedDefaultAdminUsers_(sheet) {
   sheet.getRange(2, 1, DEFAULT_ADMIN_USERS.length, ADMIN_USER_HEADERS.length).setValues(DEFAULT_ADMIN_USERS);
 }
 
-function authenticateAdminUser_(usuario, password) {
-  const normalizedUsuario = String(usuario || "").trim();
-  const normalizedPassword = String(password || "").trim();
+function getAdminCredentials_(usuario) {
+  const target = String(usuario || "").trim();
   const sheet = getAdminUsersSheet_();
-  const lastRow = sheet.getLastRow();
+  if (!target || sheet.getLastRow() < 2) return null;
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ADMIN_USER_HEADERS.length).getValues();
+  return rows.map(rowToAdminUser_).find(function (entry) { return String(entry.usuario).trim() === target; }) || null;
+}
 
-  if (!normalizedUsuario || !normalizedPassword || lastRow < 2) {
-    return { ok: false, error: "Usuario o contrasena incorrectos." };
+function upgradeAdminPassword_(usuario, previous, hash) {
+  if (!/^scrypt\$v1\$[a-f0-9]{32}\$[a-f0-9]{64}$/.test(String(hash || ""))) {
+    throw new Error("Formato de contrasena protegida invalido.");
   }
-
-  const users = sheet.getRange(2, 1, lastRow - 1, ADMIN_USER_HEADERS.length).getValues().map(rowToAdminUser_);
-  const user = users.find(function (entry) {
-    return entry.usuario === normalizedUsuario && entry.password === normalizedPassword && entry.estado === "activo";
-  });
-
-  if (!user) {
-    return { ok: false, error: "Usuario o contrasena incorrectos." };
-  }
-
-  delete user.password;
-  return { ok: true, user: user };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = getAdminUsersSheet_();
+    if (sheet.getLastRow() < 2) throw new Error("Usuario no encontrado.");
+    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ADMIN_USER_HEADERS.length).getValues();
+    const userIndex = ADMIN_USER_HEADERS.indexOf("usuario");
+    const passwordIndex = ADMIN_USER_HEADERS.indexOf("password");
+    const stateIndex = ADMIN_USER_HEADERS.indexOf("estado");
+    const index = rows.findIndex(function (row) { return String(row[userIndex]).trim() === String(usuario || "").trim(); });
+    if (index < 0 || rows[index][stateIndex] !== "activo") throw new Error("Usuario no disponible.");
+    const current = String(rows[index][passwordIndex] || "");
+    // Otra solicitud pudo migrar la misma clave; no sobrescribir claves cambiadas.
+    if (current !== String(previous || "")) throw new Error("Las credenciales cambiaron. Inicia sesion nuevamente.");
+    sheet.getRange(index + 2, passwordIndex + 1).setValue(hash);
+    SpreadsheetApp.flush();
+    return { ok: true };
+  } finally { lock.releaseLock(); }
 }
 
 function rowToAdminUser_(row) {

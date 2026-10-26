@@ -822,12 +822,16 @@ async function apiRequest(url, options = {}) {
       if (response.status === 401) {
         const returnTo = `${window.location.pathname}${window.location.hash}`;
         window.location.href = `/login.html?next=${encodeURIComponent(returnTo)}`;
-        throw new Error("Sesion requerida");
+        adminReadCache.clear();
+        const error = new Error("Sesion requerida");
+        error.status = 401;
+        throw error;
       }
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         const error = new Error(data?.error || `No se pudo completar la operacion. Estado HTTP ${response.status}.`);
+        error.status = response.status;
         error.retryable = isAdminRead && (response.status === 429 || response.status >= 500);
         throw error;
       }
@@ -857,7 +861,7 @@ async function apiRequest(url, options = {}) {
     }
   }
 
-  if (cached && cached.staleUntil > Date.now()) {
+  if (cached && cached.staleUntil > Date.now() && lastError?.status !== 401 && lastError?.status !== 403) {
     setStatus("Apps Script esta lento. Se muestran los ultimos datos disponibles; puedes reintentar el modulo.", true);
     return cached.value;
   }
@@ -1179,17 +1183,17 @@ async function ensureAlertTemplatesLoaded() {
 
 function buildWhatsAppUrl(contact, message) {
   const phone = normalizePhone(contact);
+  if (!phone) return "";
 
-  if (!phone) {
-    return "";
-  }
+  const text = renderWhatsAppEmojis(message);
+  const mobile = navigator.userAgentData?.mobile === true ||
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "") ||
+    (/Macintosh/i.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1);
 
-  const params = new URLSearchParams({
-    phone,
-    text: renderWhatsAppEmojis(message),
-  });
-
-  return `https://api.whatsapp.com/send?${params.toString()}`;
+  // En escritorio abrimos Web directamente para evitar la pantalla que invita
+  // a instalar la aplicacion. En movil se conserva el enlace oficial de chat.
+  if (mobile) return `https://wa.me/${phone}?${new URLSearchParams({ text }).toString()}`;
+  return `https://web.whatsapp.com/send?${new URLSearchParams({ phone, text }).toString()}`;
 }
 
 function sumMoney(values) {
@@ -1731,7 +1735,26 @@ function primeAdminReadCache(url, value) {
   });
 }
 
+function userCanReadModule(id) {
+  const dependencies = {
+    productos: ["productos", "compras", "inventario", "proveedores", "renovaciones", "reportes"],
+    pedidos: ["compras", "inventario", "renovaciones", "reportes"],
+    inventario: ["inventario", "compras", "renovaciones", "reportes"],
+    proveedores: ["proveedores", "inventario", "reportes"],
+    renovaciones: ["renovaciones", "inventario", "reportes"],
+    pagos: ["compras", "inventario", "renovaciones", "proveedores", "reportes"],
+    plantillas: ["plantillas", "compras", "inventario", "renovaciones"],
+    configuracion: ["plantillas"],
+    auditoria: ["auditoria"],
+  };
+  return (dependencies[id] || []).some(userCan);
+}
+
 async function loadManagedModule(id, loader, options = {}) {
+  if (!userCanReadModule(id)) {
+    setModuleLoadState(id, "skipped");
+    return true;
+  }
   setModuleLoadState(id, "loading");
   const result = await loader(options);
   setModuleLoadState(id, result === false ? "error" : "ready");
@@ -1780,42 +1803,35 @@ async function loadDashboardSnapshot() {
   }
 }
 
-async function loadInitialAdminViewData(viewName) {
-  // El dashboard necesita el conjunto completo para calcular sus indicadores.
-  // En cambio, si el usuario actualiza estando en Inventario, pedir ese
-  // conjunto completo vuelve a consultar Pedidos, Renovaciones y Pagos sin
-  // que la pantalla los use. Cargamos solo las dependencias de Inventario.
-  if (viewName !== "inventario") {
-    return loadDashboardSnapshot();
-  }
-
-  const modules = [
-    ["productos", loadProducts],
-    ["proveedores", loadSuppliers],
-    ["inventario", loadInventory],
-  ];
-
-  return runWithConcurrency(
-    modules.map(([id, loader]) => () => loadManagedModule(id, loader)),
-    1
-  );
-}
-
-function ensureAdminViewModules(viewName) {
-  const moduleByView = {
+function getAdminViewModuleIds(viewName) {
+  return {
+    compras: ["productos", "pedidos", "inventario", "pagos"],
+    productos: ["productos"],
+    exportar: ["productos"],
+    inventario: ["productos", "proveedores", "inventario"],
+    proveedores: ["productos", "proveedores", "pagos"],
+    renovaciones: ["productos", "pedidos", "inventario", "renovaciones", "pagos"],
     plantillas: ["plantillas"],
     configuracion: ["configuracion"],
     auditoria: ["auditoria"],
-  };
+  }[viewName] || [];
+}
 
-  (moduleByView[viewName] || []).forEach((id) => {
-    if (!moduleLoadState.has(id)) {
-      const loader = getAdminModuleLoader(id);
-      if (loader) {
-        loadManagedModule(id, loader);
-      }
-    }
-  });
+async function loadInitialAdminViewData(viewName) {
+  if (viewName === "dashboard" || viewName === "reportes") return loadDashboardSnapshot();
+  return runWithConcurrency(getAdminViewModuleIds(viewName).map((id) =>
+    () => loadManagedModule(id, getAdminModuleLoader(id))
+  ), 1);
+}
+
+async function ensureAdminViewModules(viewName) {
+  if (viewName === "dashboard" || viewName === "reportes") {
+    const ids = ["productos", "pedidos", "inventario", "proveedores", "renovaciones", "pagos"];
+    if (ids.some((id) => userCanReadModule(id) && !moduleLoadState.has(id))) await loadDashboardSnapshot();
+    return;
+  }
+  const missing = getAdminViewModuleIds(viewName).filter((id) => !moduleLoadState.has(id));
+  await runWithConcurrency(missing.map((id) => () => loadManagedModule(id, getAdminModuleLoader(id))), 1);
 }
 
 async function refreshOperationalData() {
@@ -3927,6 +3943,10 @@ async function confirmRenewal(form) {
   renderReports();
   setStatus(`Renovacion ${renewalId} confirmada.`);
 
+  if (!(await ensureAlertTemplatesLoaded())) {
+    return;
+  }
+
   const confirmationSource = resolveRenewalSource({
     ...(updatedItem || {}),
     ...saved,
@@ -3939,12 +3959,16 @@ async function confirmRenewal(form) {
   }
 }
 
-function sendRenewalConfirmationMessage(renewalId) {
+async function sendRenewalConfirmationMessage(renewalId) {
   const renewal = renewals.find((entry) => entry.renovacion_id === renewalId);
   const inventoryItem = inventoryItems.find((item) => item.inventario_id === renewal?.inventario_id) || {};
 
   if (!renewal) {
     setStatus("Selecciona una renovacion para enviar la confirmacion.", true);
+    return;
+  }
+
+  if (!(await ensureAlertTemplatesLoaded())) {
     return;
   }
 
@@ -4853,7 +4877,7 @@ renewalEditor?.addEventListener("click", async (event) => {
 
   if (confirmationButton) {
     const form = confirmationButton.closest(".renewal-form");
-    sendRenewalConfirmationMessage(form?.dataset.renewalId);
+    await sendRenewalConfirmationMessage(form?.dataset.renewalId);
     return;
   }
 
@@ -5238,13 +5262,17 @@ document.querySelectorAll("[data-close-bulk-inventory]").forEach((button) => {
   button.addEventListener("click", closeBulkInventoryModal);
 });
 
-cutServiceButton?.addEventListener("click", () => {
+cutServiceButton?.addEventListener("click", async () => {
   if (!selectedInventoryId) {
     setStatus("Selecciona una cuenta para cortar el servicio.", true);
     return;
   }
 
   const item = inventoryItems.find((entry) => entry.inventario_id === selectedInventoryId) || getInventoryFormItem();
+  if (!(await ensureAlertTemplatesLoaded())) {
+    return;
+  }
+
   const serviceCutSource = resolveRenewalSource(item);
   const href = buildWhatsAppUrl(serviceCutSource.cliente_contacto, buildServiceCutMessage(serviceCutSource));
 
@@ -5261,13 +5289,17 @@ cutServiceButton?.addEventListener("click", () => {
   setStatus(`Mensaje de corte preparado para ${selectedInventoryId}.`);
 });
 
-dataUpdateButton?.addEventListener("click", () => {
+dataUpdateButton?.addEventListener("click", async () => {
   if (!selectedInventoryId) {
     setStatus("Selecciona una cuenta para actualizar datos.", true);
     return;
   }
 
   const item = inventoryItems.find((entry) => entry.inventario_id === selectedInventoryId) || getInventoryFormItem();
+  if (!(await ensureAlertTemplatesLoaded())) {
+    return;
+  }
+
   const dataUpdateSource = resolveRenewalSource(item);
   const href = buildWhatsAppUrl(dataUpdateSource.cliente_contacto, buildDataUpdateMessage(dataUpdateSource));
 
