@@ -42,7 +42,8 @@ const DurableSessionStore = require("./src/services/sessions/durableSessionStore
 const { createRateLimiter: buildRateLimiter } = require("./src/services/security/rateLimiter");
 const { canRead, filterOperationalData } = require("./src/services/security/access");
 const { createSessionVersions } = require("./src/services/security/sessionVersions");
-const securityNamespace = runtimeEnv.SECURITY_STATE;
+const { createSecurityNamespace } = require("./src/services/security/client");
+const securityNamespace = createSecurityNamespace(() => runtimeEnv.SECURITY_STATE, isWorkerRuntime);
 const D1SheetsImportService = require("./src/services/migrations/d1SheetsImportService");
 const {
   normalizeInventoryItem,
@@ -80,7 +81,7 @@ const messageTemplateStore = createMessageTemplateStore(runtimeEnv);
 const siteSettingStore = createSiteSettingStore(runtimeEnv);
 const userStore = createUserStore(runtimeEnv);
 const supplierStore = createSupplierStore(runtimeEnv);
-const auditStore = createAuditStore(runtimeEnv);
+const auditStore = createAuditStore(runtimeEnv, securityNamespace);
 const d1SheetsImportService = new D1SheetsImportService({
   db: globalThis.__MAWG_D1__,
   sources: {
@@ -138,9 +139,6 @@ const sessionStore =
       })
     : undefined;
 
-if (isWorkerRuntime && !securityNamespace) {
-  throw new Error("Falta el binding SECURITY_STATE para sesiones y limites compartidos.");
-}
 const configuredProofUploadMaxMb = Number(runtimeEnv.PROOF_UPLOAD_MAX_MB);
 const proofUploadMaxMb = Number.isFinite(configuredProofUploadMaxMb) && configuredProofUploadMaxMb > 0 ? configuredProofUploadMaxMb : 8;
 const proofUploadMaxBytes = Math.max(1, proofUploadMaxMb) * 1024 * 1024;

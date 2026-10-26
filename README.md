@@ -541,7 +541,7 @@ Las escrituras conservan sus permisos por modulo. Las lecturas permiten las depe
 
 `npm test` ejecuta las pruebas de `test/`, incluidas las de permisos, claves protegidas, logout, revocacion, limites compartidos y alertas. Las compras de proveedor recibidas generan inventario en estado **reservado**. Las imagenes de Drive se normalizan con ancho de 800 px.
 
-En Workers los limites por IP y las sesiones requieren `SECURITY_STATE`; si falta el binding, el servidor no inicia con una proteccion parcial. En Node local se conserva el limite en memoria y sesiones de archivo o memoria segun la configuracion. Un despliegue Node con multiples procesos requiere un almacen compartido adicional; estos limites locales son para una sola instancia.
+En Workers los limites por IP y las sesiones requieren `SECURITY_STATE`; el binding se resuelve al procesar cada operacion y, si falta, se rechaza la operacion con HTTP 503 sin usar sesiones ni limites locales. La evaluacion del modulo durante el despliegue no exige que el namespace ya este disponible. En Node local se conserva el limite en memoria y sesiones de archivo o memoria segun la configuracion. Un despliegue Node con multiples procesos requiere un almacen compartido adicional; estos limites locales son para una sola instancia.
 
 Los fallos remotos al consultar plantillas se propagan como error: no se sustituyen silenciosamente por mensajes predeterminados. La configuracion de Durable Objects sigue la [documentacion oficial de Cloudflare](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/).
 
