@@ -90,3 +90,33 @@ test("Worker arranca sin namespace en validacion y rechaza login si sigue ausent
     assert.ok(!login.headers.getSetCookie().some((value) => value.startsWith("streamhub.sid=")));
   } finally { await mf.dispose(); }
 });
+
+test("Worker sirve recursos minificados mediante ASSETS sin acceso a archivos locales", { timeout: 20000 }, async () => {
+  const requested = [];
+  const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{
+    name: 'mawg-assets-test',
+    scriptPath: path.join(__dirname, '../.tmp-worker-check/worker.js'),
+    modules: true, compatibilityDate: '2026-09-16',
+    compatibilityFlags: ['nodejs_compat_v2', 'enable_nodejs_http_server_modules'],
+    bindings: { NODE_ENV: 'production', CATALOG_STORAGE: 'apps-script', OPERATIONS_STORAGE: 'apps-script',
+      SESSION_SECRET: 'static-assets-test-session-secret-long-enough', ADMIN_USER: 'assets-admin', ADMIN_PASSWORD: 'assets-test-password', APPS_SCRIPT_CATALOG_URL: 'https://example.invalid/exec', APPS_SCRIPT_ADMIN_TOKEN: 'asset-test-token' },
+    durableObjects: { SECURITY_STATE: { className: 'SecurityState', useSQLite: true } },
+    serviceBindings: { ASSETS: async request => {
+      const pathname = new URL(request.url).pathname;
+      requested.push(pathname);
+      if (request.headers.get('if-none-match') === '"test-asset"') return new Response(null, { status: 304, headers: { ETag: '"test-asset"' } });
+      return new Response('/* minified asset */', { headers: { 'Content-Type': 'text/javascript', ETag: '"test-asset"' } });
+    } },
+  }] }));
+  try {
+    const response = await mf.dispatchFetch('https://worker.test/script.js');
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), '/* minified asset */');
+    assert.deepEqual(requested, ['/dist/script.js']);
+    const cached = await mf.dispatchFetch('https://worker.test/script.js', { headers: { 'If-None-Match': '"test-asset"' } });
+    assert.equal(cached.status, 304);
+    const admin = await mf.dispatchFetch('https://worker.test/admin-reports.js', { redirect: 'manual' });
+    assert.notEqual(admin.status, 200);
+    assert.equal(requested.some(url => url.includes('admin-reports')), false);
+  } finally { await mf.dispose(); }
+});

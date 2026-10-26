@@ -16,11 +16,11 @@ function build(navigator, contact = "51999999999") {
 }
 
 for (const agent of ["Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "Mozilla/5.0 (X11; Linux x86_64)"]) {
-  test(`escritorio abre la aplicacion: ${agent}`, () => {
+  test(`escritorio usa enlace HTTPS de chat: ${agent}`, () => {
     const url = new URL(build({ userAgent: agent }));
-    assert.equal(url.protocol, "whatsapp:");
-    assert.equal(url.hostname, "send");
-    assert.equal(url.searchParams.get("phone"), "51999999999");
+    assert.equal(url.protocol, "https:");
+    assert.equal(url.hostname, "wa.me");
+    assert.equal(url.pathname, "/51999999999");
     assert.equal(url.searchParams.get("text"), "Hola ✅\nRenovacion & pago + perfil");
   });
 }
@@ -31,14 +31,56 @@ for (const navigator of [
   { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)", maxTouchPoints: 5 },
   { userAgent: "", userAgentData: { mobile: true } },
 ]) {
-  test(`movil abre la aplicacion: ${JSON.stringify(navigator)}`, () => {
+  test(`movil usa enlace HTTPS de chat: ${JSON.stringify(navigator)}`, () => {
     const url = new URL(build(navigator));
-    assert.equal(url.protocol, "whatsapp:");
-    assert.equal(url.hostname, "send");
-    assert.equal(url.searchParams.get("phone"), "51999999999");
+    assert.equal(url.protocol, "https:");
+    assert.equal(url.hostname, "wa.me");
+    assert.equal(url.pathname, "/51999999999");
     assert.equal(url.searchParams.get("text"), "Hola ✅\nRenovacion & pago + perfil");
   });
 }
 test("no genera enlace si falta el contacto", () => {
   assert.equal(build({ userAgent: "desktop" }, ""), "");
+});
+
+function launchHarness(mode) {
+  const notices = [];
+  const popup = {};
+  const element = () => ({ children: [], setAttribute() {}, addEventListener(type, fn) { this[type] = fn; },
+    append(...children) { this.children.push(...children); }, focus() { this.focused = true; }, remove() { this.removed = true; } });
+  const context = vm.createContext({
+    window: { open: () => { if (mode === 'throws') throw new Error('blocked'); return mode === 'opens' ? popup : null; } },
+    document: { querySelector: () => notices.find(notice => !notice.removed), createElement: element,
+      body: { appendChild: notice => notices.push(notice) } },
+  });
+  const start = source.indexOf('function openWhatsAppLink(href) {');
+  vm.runInContext(source.slice(start, source.indexOf('\nfunction renderAssignmentFinancials(', start)), context);
+  return { context, notices, popup };
+}
+test('apertura normal elimina acceso al panel mediante opener', () => {
+  const h = launchHarness('opens');
+  assert.equal(h.context.openWhatsAppLink('https://wa.me/51999999999?text=Hola'), true);
+  assert.equal(h.popup.opener, null);
+  assert.equal(h.notices.length, 0);
+});
+for (const mode of ['blocked', 'throws']) {
+  test(`ventana ${mode}: ofrece enlace con mensaje y permite cerrarlo`, () => {
+    const h = launchHarness(mode);
+    const url = 'https://wa.me/51999999999?text=Mi%20plantilla';
+    assert.equal(h.context.openWhatsAppLink(url), true);
+    const notice = h.notices[0], link = notice.children[1];
+    assert.equal(link.href, url);
+    assert.equal(link.target, '_blank');
+    assert.equal(link.rel, 'noopener noreferrer');
+    assert.equal(link.focused, true);
+    h.context.openWhatsAppLink(url);
+    assert.equal(notice.removed, true);
+    h.notices[1].children[2].click();
+    assert.equal(h.notices[1].removed, true);
+  });
+}
+test('sin contacto no abre ventana ni muestra enlace', () => {
+  const h = launchHarness('blocked');
+  assert.equal(h.context.openWhatsAppLink(''), false);
+  assert.equal(h.notices.length, 0);
 });

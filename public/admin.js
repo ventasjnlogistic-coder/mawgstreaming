@@ -1233,8 +1233,8 @@ function buildWhatsAppUrl(contact, message) {
   if (!phone) return "";
 
   const text = renderWhatsAppEmojis(message);
-  // Abre directamente la aplicacion de WhatsApp instalada.
-  return `whatsapp://send?${new URLSearchParams({ phone, text }).toString()}`;
+  // Enlace HTTPS oficial: no depende de un protocolo instalado en el equipo.
+  return `https://wa.me/${phone}?${new URLSearchParams({ text }).toString()}`;
 }
 
 function sumMoney(values) {
@@ -2204,18 +2204,40 @@ function renderNotificationLink(href, label) {
 }
 
 function openWhatsAppLink(href) {
-  if (!href) {
-    return false;
+  if (!href) return false;
+  document.querySelector("#whatsappLaunchFallback")?.remove();
+  try {
+    const opened = window.open(href, "_blank");
+    if (opened) {
+      opened.opener = null;
+      return true;
+    }
+  } catch {
+    // La carga asincrona de plantillas puede perder el permiso de apertura.
   }
 
-  const opened = window.open(href, "_blank");
-
-  if (opened) {
-    opened.opener = null;
-    return true;
-  }
-
-  return false;
+  // Un clic real en este enlace permite continuar sin abandonar el panel.
+  const notice = document.createElement("div");
+  notice.id = "whatsappLaunchFallback";
+  notice.className = "whatsapp-launch-fallback";
+  notice.setAttribute("role", "status");
+  const message = document.createElement("span");
+  message.textContent = "El navegador bloqueo la ventana. Tu mensaje esta listo:";
+  const link = document.createElement("a");
+  link.className = "button button-primary compact-button";
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = "Abrir WhatsApp";
+  const close = document.createElement("button");
+  close.className = "button button-secondary compact-button";
+  close.type = "button";
+  close.textContent = "Cerrar";
+  close.addEventListener("click", () => notice.remove());
+  notice.append(message, link, close);
+  document.body.appendChild(notice);
+  link.focus();
+  return true;
 }
 
 function renderAssignmentFinancials(assignment) {

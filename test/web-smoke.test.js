@@ -172,3 +172,12 @@ test("imagenes configuradas en catalogo existen en public/assets", async () => {
     assert.match(imageResponse.headers.get("content-type") || "", /^image\//);
   }
 });
+
+test("reportes diferidos requieren sesion y se sirven como JavaScript", async () => {
+  const unauthorized = await fetchText('/admin-reports.js');
+  assert.notEqual(unauthorized.response.status, 200);
+  const authorized = await fetchText('/admin-reports.js', { headers: { Cookie: authCookie } });
+  assert.equal(authorized.response.status, 200);
+  assert.match(authorized.response.headers.get('content-type'), /javascript/);
+  assert.match(authorized.text, /window.mawgReports/);
+});
