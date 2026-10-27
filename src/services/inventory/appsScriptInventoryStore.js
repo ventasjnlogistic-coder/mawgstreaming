@@ -1,5 +1,8 @@
+const OperationClient = require("../appsScript/operationClient");
 class AppsScriptInventoryStore {
   constructor(config) {
+    this.operations = new OperationClient(config);
+    this.operationTimeoutMs = Number(config.operationTimeoutMs || 30000);
     this.endpointUrl = config.endpointUrl;
     this.adminToken = config.adminToken;
     this.timeoutMs = Number(config.timeoutMs || 15000);
@@ -90,6 +93,11 @@ class AppsScriptInventoryStore {
       await new Promise((resolve) => setTimeout(resolve, 800));
       return this.request(payload);
     }
+  }
+
+  async renewItem(id, patch, operationId) {
+    const { operation_id, ...businessPatch } = patch;
+    return this.operations.request({ action: "inventory.renew", id, patch: businessPatch, operation_id: operationId }, this.operationTimeoutMs);
   }
 
   async listItems() {

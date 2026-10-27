@@ -6,7 +6,8 @@ compatibility_flags = ["nodejs_compat_v2", "enable_nodejs_http_server_modules"]
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = ["/api/*"]
+# CSS y scripts pasan por las rutas existentes: dist y autenticacion del admin.
+run_worker_first = ["/api/*", "/styles.css", "/script.js", "/login.js", "/admin.js", "/admin-reports.js"]
 
 [vars]
 NODE_ENV = "production"
@@ -16,6 +17,7 @@ CATALOG_STORAGE = "apps-script"
 # la migracion; luego cambia a "d1" y vuelve a desplegar (ver README).
 OPERATIONS_STORAGE = "apps-script"
 APPS_SCRIPT_TIMEOUT_MS = "15000"
+APPS_SCRIPT_OPERATION_TIMEOUT_MS = "30000"
 PUBLIC_API_CACHE_TTL_MS = "120000"
 PROOF_UPLOAD_MAX_MB = "8"
 SESSION_MAX_AGE_HOURS = "24"

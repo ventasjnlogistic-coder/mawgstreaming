@@ -276,7 +276,32 @@ function getCompressedAsset(filePath) {
   return asset;
 }
 
+async function sendWorkerAsset(req, res, fileName, cacheControl) {
+  try {
+    const headers = {};
+    if (req.get("if-none-match")) headers["If-None-Match"] = req.get("if-none-match");
+    const assetUrl = new URL("/" + (isProduction ? "dist/" : "") + fileName, "https://assets.internal");
+    let response = await runtimeEnv.ASSETS.fetch(new Request(assetUrl, { headers }));
+    if (response.status === 404 && isProduction) {
+      response = await runtimeEnv.ASSETS.fetch(new Request(new URL("/" + fileName, assetUrl), { headers }));
+    }
+    res.setHeader("Cache-Control", cacheControl);
+    for (const name of ["Content-Type", "ETag", "Last-Modified"]) {
+      if (response.headers.has(name)) res.setHeader(name, response.headers.get(name));
+    }
+    res.status(response.status);
+    if (response.status === 304) { res.end(); return; }
+    res.send(Buffer.from(await response.arrayBuffer()));
+  } catch (error) {
+    console.error("No se pudo servir el recurso estatico del Worker", error);
+    if (!res.headersSent) res.status(503).end();
+  }
+}
+
 function sendPublicFile(req, res, fileName, cacheControl) {
+  if (isWorkerRuntime && runtimeEnv.ASSETS) {
+    return sendWorkerAsset(req, res, fileName, cacheControl);
+  }
   const distPath = path.join(publicDir, "dist", fileName);
   const sourcePath = path.join(publicDir, fileName);
   const filePath = isProduction && fs.existsSync(distPath) ? distPath : sourcePath;
@@ -1883,6 +1908,7 @@ async function confirmRenewal(id, payload = {}) {
     fecha_vencimiento_cliente: renewal.vencimiento_nuevo,
     notas: `Renovacion ${renewal.renovacion_id} confirmada`,
   });
+  delete renewal.comprobante_archivo;
   const savedRenewal = normalizeRenewal(await renewalStore.updateRenewal(id, renewal));
 
   return {
@@ -2346,11 +2372,37 @@ app.post("/api/admin/inventario/:id/liberar", requirePermission("inventario"), a
   }
 });
 
+app.get("/api/admin/operaciones-renovacion/:id", requireAuth, async (req, res) => {
+  if (!hasPermission(req, "inventario") && !hasPermission(req, "renovaciones")) {
+    res.status(403).json({ error: "No tienes permisos para consultar renovaciones." }); return;
+  }
+  if (typeof renewalStore.getOperation !== "function") { res.json({ state: "not_started" }); return; }
+  try {
+    const operation = await renewalStore.getOperation(req.params.id);
+    if (operation.result) {
+      delete operation.result.before;
+      operation.result.item = operationalResponse(req, operation.result.item, "inventory");
+      operation.result.order = operationalResponse(req, operation.result.order, "orders");
+    }
+    res.json(operation);
+  } catch (error) { res.status(error.statusCode || 502).json({ error: error.message, code: error.code || "" }); }
+});
+
+function requireRenewalOperationId(body) {
+  const id = String(body.operation_id || "");
+  if (!/^[a-zA-Z0-9_-]{16,100}$/.test(id)) {
+    const error = new Error("Actualiza el panel y vuelve a intentar la renovacion."); error.statusCode = 400; throw error;
+  }
+  return id;
+}
+
 app.put("/api/admin/inventario/:id/renovar", requirePermission("inventario"), async (req, res) => {
   try {
-    const before = (await readInventory()).find((entry) => entry.inventario_id === req.params.id) || {};
-    const saved = await renewInventoryItem(req.params.id, req.body || {});
-    await audit(req, {
+    const result = typeof inventoryStore.renewItem === "function"
+      ? await inventoryStore.renewItem(req.params.id, req.body || {}, requireRenewalOperationId(req.body || {})) : null;
+    const before = result ? result.before : (await readInventory()).find((entry) => entry.inventario_id === req.params.id) || {};
+    const saved = result ? normalizeInventoryItem(result.item) : await renewInventoryItem(req.params.id, req.body || {});
+    if (!result?.replayed) await audit(req, {
       entidad: "inventario",
       entidad_id: saved.inventario_id,
       accion: "renovar",
@@ -2359,10 +2411,10 @@ app.put("/api/admin/inventario/:id/renovar", requirePermission("inventario"), as
       detalles: { vencimiento_anterior: before.fecha_vencimiento_cliente || "", vencimiento_nuevo: saved.fecha_vencimiento_cliente || "" },
     });
     await clearPublicApiCache("products-with-stock");
-    res.json(saved);
+    res.json(result ? { ...saved, operation_id: result.operation_id, updated_order: result.order } : saved);
   } catch (error) {
     logUnexpectedError(error);
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo renovar la cuenta." });
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo renovar la cuenta.", code: error.code || "" });
   }
 });
 
@@ -2420,6 +2472,28 @@ app.put("/api/admin/renovaciones/:id", requirePermission("renovaciones"), async 
 
 app.post("/api/admin/renovaciones/:id/confirmar", requirePermission("renovaciones"), handleProofUpload, async (req, res) => {
   try {
+
+    if (typeof renewalStore.confirmRenewal === "function") {
+      const operationId = requireRenewalOperationId(req.body || {});
+      const patch = { ...(req.body || {}) };
+      delete patch.operation_id;
+      delete patch.comprobante_archivo;
+      const file = proofFileToPayload(req.file);
+      if (file) {
+        const uploaded = await renewalStore.uploadOperationProof(file, operationId);
+        patch.comprobante_url = uploaded.url;
+        patch.comprobante_referencia = String(patch.comprobante_referencia || file.nombre);
+        patch.comprobante_notas = [patch.comprobante_notas, "Archivo: " + uploaded.nombre].filter(Boolean).join(" | ");
+      }
+      const result = await renewalStore.confirmRenewal(req.params.id, patch, operationId);
+      if (!result.replayed) await audit(req, {
+        entidad: "renovacion", entidad_id: result.renewal.renovacion_id, accion: "confirmar",
+        antes: result.before, despues: result.renewal,
+        detalles: { operation_id: operationId, inventario_id: result.renewal.inventario_id, vencimiento_nuevo: result.renewal.vencimiento_nuevo },
+      });
+      res.json({ renewal: result.renewal, item: result.item, order: result.order, operation_id: operationId });
+      return;
+    }
     const before = (await readRenewals()).find((entry) => entry.renovacion_id === req.params.id) || {};
     const proofFile = proofFileToPayload(req.file);
     const payload = {
@@ -2472,7 +2546,7 @@ app.post("/api/admin/renovaciones/:id/confirmar", requirePermission("renovacione
     res.json(result);
   } catch (error) {
     logUnexpectedError(error);
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo confirmar la renovacion." });
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo confirmar la renovacion.", code: error.code || "" });
   }
 });
 
@@ -2609,6 +2683,10 @@ app.get("/script.js", (req, res) => {
 
 app.get("/login.js", (req, res) => {
   sendCachedAsset(req, res, "login.js");
+});
+
+app.get("/admin-reports.js", requireAuth, (req, res) => {
+  sendCachedAsset(req, res, "admin-reports.js", "private, no-store");
 });
 
 app.get("/admin.js", requireAuth, (req, res) => {

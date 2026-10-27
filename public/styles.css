@@ -3236,3 +3236,59 @@ textarea:focus,
 
 .whatsapp-launch-fallback { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10000; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; width: min(650px, calc(100% - 32px)); padding: 18px; border: 1px solid #407857; border-radius: 14px; background: #11251b; color: #fff; box-shadow: 0 8px 30px #0006; }
 .whatsapp-launch-fallback span { flex: 1 1 220px; }
+
+/* El contenido intrinseco no debe ensanchar las tarjetas del catalogo. */
+.product-grid,
+.product-card,
+.product-card > *,
+.product-media {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.product-card h3,
+.product-card .product-description,
+.product-card .product-meta > * {
+  overflow-wrap: anywhere;
+}
+
+.product-media img {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 720px) {
+  body:not(.admin-page):not(.login-page) {
+    padding: 0.5rem;
+  }
+
+  body:not(.admin-page):not(.login-page) > .site-header,
+  body:not(.admin-page):not(.login-page) > main {
+    width: 100%;
+  }
+
+  .product-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-card {
+    width: 100%;
+    padding: 1rem;
+  }
+
+  .product-media {
+    width: 100%;
+    min-height: 0;
+  }
+
+  .product-media img {
+    height: auto;
+    min-height: 0;
+    object-fit: contain;
+  }
+
+  .product-description {
+    text-align: left;
+  }
+}

@@ -26,6 +26,8 @@ const READ_CACHE_KEYS_BY_ACTION = {
   "orders.update": ["orders"],
   "inventory.create": ["inventory"],
   "inventory.update": ["inventory"],
+  "inventory.renew": ["inventory", "orders"],
+  "renewals.confirm": ["inventory", "orders", "renewals"],
   "inventory.bulkupdate": ["inventory"],
   "inventory.assign": ["inventory", "orders"],
   "inventory.assignmany": ["inventory", "orders"],
@@ -281,7 +283,7 @@ function doGet(e) {
 
     return jsonResponse({ ok: true, products: getCachedRead_("products", listProducts_) });
   } catch (error) {
-    return jsonResponse({ ok: false, error: error.message });
+    return jsonResponse({ ok: false, error: error.message, code: error.code || "" });
   }
 }
 
@@ -294,7 +296,9 @@ function doPost(e) {
   }
   const lock = LockService.getScriptLock();
   try {
+    const lockStarted = Date.now();
     lock.waitLock(10000);
+    if (action === "inventory.renew" || action === "renewals.confirm") console.log(JSON.stringify({ event: "renewal_lock", action: action, operation_id: payload.operation_id, wait_ms: Date.now() - lockStarted }));
     try {
       return handlePost_(e);
     } finally {
@@ -302,7 +306,7 @@ function doPost(e) {
       try { SpreadsheetApp.flush(); } finally { invalidateReadCache_(keys); }
     }
   } catch (error) {
-    return jsonResponse({ ok: false, error: error.message });
+    return jsonResponse({ ok: false, error: error.message, code: error.code || "" });
   } finally {
     if (lock.hasLock()) lock.releaseLock();
   }
@@ -337,7 +341,7 @@ function handlePost_(e) {
 
       return jsonResponse({
         ok: true,
-        file: uploadProofFile_(payload.proof || {}, payload.proof_drive_folder_id),
+        file: payload.operation_id ? uploadOperationProof_(payload) : uploadProofFile_(payload.proof || {}, payload.proof_drive_folder_id),
       });
     }
 
@@ -352,6 +356,13 @@ function handlePost_(e) {
     }
     if (action === "users.password-upgrade") {
       return jsonResponse(upgradeAdminPassword_(payload.usuario, payload.previous, payload.hash));
+    }
+
+    if (action === "renewals.operation") {
+      return jsonResponse(Object.assign({ ok: true }, getRenewalOperationStatus_(payload.operation_id)));
+    }
+    if (action === "inventory.renew" || action === "renewals.confirm") {
+      return jsonResponse(Object.assign({ ok: true }, runRenewalOperation_(payload, action)));
     }
 
     if (action === "dashboard.snapshot") {
@@ -486,7 +497,7 @@ function handlePost_(e) {
 
     return jsonResponse({ ok: false, error: "Accion no soportada." });
   } catch (error) {
-    return jsonResponse({ ok: false, error: error.message });
+    return jsonResponse({ ok: false, error: error.message, code: error.code || "" });
   }
 }
 
@@ -2890,4 +2901,192 @@ function generateProviderPurchaseId_() {
 
 function jsonResponse(payload) {
   return ContentService.createTextOutput(JSON.stringify(payload)).setMimeType(ContentService.MimeType.JSON);
+}
+
+const RENEWAL_OPERATION_HEADERS = ["operation_id", "action", "target_id", "state", "plan", "updated_at"];
+
+function renewalOperationError_(message, code) {
+  const error = new Error(message); error.code = code; return error;
+}
+
+function validateOperationId_(id) {
+  if (!/^[a-zA-Z0-9_-]{16,100}$/.test(String(id || ""))) {
+    throw renewalOperationError_("Identificador de operacion invalido.", "INVALID_OPERATION");
+  }
+  return String(id);
+}
+
+function readRenewalRecord_(sheet, id, headers, convert) {
+  const row = findRowById_(sheet, id);
+  if (row < 2) throw renewalOperationError_("Registro no encontrado: " + id, "NOT_FOUND");
+  const values = sheet.getRange(row, 1, 1, headers.length).getValues()[0];
+  return { sheet: sheet, row: row, values: values, value: convert(values) };
+}
+
+function buildRenewalOperationPlan_(payload, action) {
+  const now = new Date().toISOString();
+  const entries = [];
+  let renewalRecord = null;
+  let renewal = null;
+  const patch = payload.patch || {};
+  if (action === "renewals.confirm") {
+    renewalRecord = readRenewalRecord_(getRenewalsSheet_(), payload.id, RENEWAL_HEADERS, rowToRenewal_);
+    if (renewalRecord.value.estado === "renovado") {
+      throw renewalOperationError_("La renovacion ya fue confirmada. Actualiza la lista.", "ALREADY_CONFIRMED");
+    }
+    // El inventario asociado pertenece al registro, nunca al formulario recibido.
+    renewal = normalizeRenewal_(Object.assign({}, renewalRecord.value, {
+      monto: patch.monto === undefined ? renewalRecord.value.monto : patch.monto,
+      metodo_pago: patch.metodo_pago === undefined ? renewalRecord.value.metodo_pago : patch.metodo_pago,
+      comprobante_url: patch.comprobante_url || renewalRecord.value.comprobante_url,
+      comprobante_referencia: patch.comprobante_referencia || renewalRecord.value.comprobante_referencia,
+      comprobante_notas: patch.comprobante_notas || renewalRecord.value.comprobante_notas,
+      notas: patch.notas === undefined ? renewalRecord.value.notas : patch.notas,
+      vencimiento_nuevo: patch.vencimiento_nuevo || renewalRecord.value.vencimiento_nuevo,
+      estado: "renovado", fecha_pago: patch.fecha_pago || renewalRecord.value.fecha_pago || now,
+      fecha_confirmacion: now, actualizado_en: now,
+    }));
+    validateRenewal_(renewal);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(renewal.vencimiento_nuevo) || isNaN(Date.parse(renewal.vencimiento_nuevo)) || new Date(renewal.vencimiento_nuevo).toISOString().slice(0, 10) !== renewal.vencimiento_nuevo) {
+      throw renewalOperationError_("Indica un nuevo vencimiento valido.", "VALIDATION");
+    }
+    if (!renewal.comprobante_url && !renewal.comprobante_referencia && !renewal.comprobante_notas) {
+      throw renewalOperationError_("Registra un comprobante, referencia o nota de pago.", "VALIDATION");
+    }
+  }
+  const inventoryId = renewal ? renewal.inventario_id : String(payload.id || "");
+  const inventoryRecord = readRenewalRecord_(getInventorySheet_(), inventoryId, INVENTORY_HEADERS, rowToInventoryItem_);
+  const itemPatch = renewal ? {
+    fecha_vencimiento_cliente: renewal.vencimiento_nuevo,
+    notas: "Renovacion " + renewal.renovacion_id + " confirmada",
+  } : patch;
+  const item = normalizeInventoryItem_(Object.assign({}, inventoryRecord.value, {
+    fecha_compra: itemPatch.fecha_compra === undefined ? inventoryRecord.value.fecha_compra : itemPatch.fecha_compra,
+    fecha_vencimiento_cliente: itemPatch.fecha_vencimiento_cliente === undefined ? inventoryRecord.value.fecha_vencimiento_cliente : itemPatch.fecha_vencimiento_cliente,
+    proveedor: itemPatch.proveedor === undefined ? inventoryRecord.value.proveedor : itemPatch.proveedor,
+    costo_proveedor: itemPatch.costo_proveedor === undefined ? inventoryRecord.value.costo_proveedor : itemPatch.costo_proveedor,
+    notas: [inventoryRecord.value.notas, String(itemPatch.notas || "").trim()].filter(Boolean).join(" | "),
+    actualizado_en: now,
+  }));
+  validateInventoryItem_(item);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(item.fecha_vencimiento_cliente) || isNaN(Date.parse(item.fecha_vencimiento_cliente)) || new Date(item.fecha_vencimiento_cliente).toISOString().slice(0, 10) !== item.fecha_vencimiento_cliente) {
+    throw renewalOperationError_("Indica un nuevo vencimiento valido.", "VALIDATION");
+  }
+  entries.push({ sheet: INVENTORY_SHEET_NAME, id: inventoryId, before: inventoryRecord.values, after: inventoryItemToRow_(item), text: INVENTORY_TEXT_FIELDS });
+  let order = null;
+  if (item.pedido_id) {
+    const record = readRenewalRecord_(getOrdersSheet_(), item.pedido_id, ORDER_HEADERS, rowToOrder_);
+    order = normalizeOrder_(Object.assign({}, record.value, {
+      fecha_vencimiento_cliente: item.fecha_vencimiento_cliente, proveedor: item.proveedor,
+      costo_proveedor: item.costo_proveedor, actualizado_en: now,
+      asignaciones_inventario: (record.value.asignaciones_inventario || []).map(function (assignment) {
+        return assignment.inventario_id === inventoryId ? Object.assign({}, assignment, {
+          fecha_vencimiento_cliente: item.fecha_vencimiento_cliente, proveedor: item.proveedor, costo_proveedor: item.costo_proveedor,
+        }) : assignment;
+      }),
+    }));
+    validateOrder_(order);
+    entries.push({ sheet: ORDERS_SHEET_NAME, id: item.pedido_id, before: record.values, after: orderToRow_(order), text: ORDER_TEXT_FIELDS });
+  }
+  if (renewal) entries.push({ sheet: RENEWALS_SHEET_NAME, id: renewal.renovacion_id, before: renewalRecord.values, after: renewalToRow_(renewal), text: RENEWAL_TEXT_FIELDS });
+  return { inventory_id: inventoryId, request: JSON.stringify(payload.patch || {}), entries: entries };
+}
+
+function renewalOperationResult_(plan, operationId) {
+  const find = function (name) { return plan.entries.find(function (entry) { return entry.sheet === name; }); };
+  const inventory = find(INVENTORY_SHEET_NAME), order = find(ORDERS_SHEET_NAME), renewal = find(RENEWALS_SHEET_NAME);
+  return {
+    operation_id: operationId,
+    before: renewal ? rowToRenewal_(renewal.before) : rowToInventoryItem_(inventory.before),
+    item: rowToInventoryItem_(inventory.after),
+    order: order ? rowToOrder_(order.after) : null,
+    renewal: renewal ? rowToRenewal_(renewal.after) : null,
+  };
+}
+
+// doPost mantiene el bloqueo de script durante toda esta operacion.
+function runRenewalOperation_(payload, action) {
+  const started = Date.now();
+  const operationId = validateOperationId_(payload.operation_id);
+  const spreadsheet = getSpreadsheet_();
+  const journal = spreadsheet.getSheetByName("OperacionesRenovacion") || spreadsheet.insertSheet("OperacionesRenovacion");
+  ensureSpecificHeaders_(journal, RENEWAL_OPERATION_HEADERS);
+  const count = journal.getLastRow();
+  const rows = count > 1 ? journal.getRange(2, 1, count - 1, 4).getValues() : [];
+  const index = rows.findIndex(function (row) { return String(row[0]) === operationId; });
+  let plan, journalRow;
+  if (index >= 0) {
+    const saved = rows[index];
+    if (saved[1] !== action || String(saved[2]) !== String(payload.id)) throw renewalOperationError_("Operacion usada para otro registro.", "OPERATION_CONFLICT");
+    journalRow = index + 2;
+    plan = JSON.parse(journal.getRange(journalRow, 5).getValues()[0][0]);
+    if (plan.request !== JSON.stringify(payload.patch || {})) throw renewalOperationError_("Reintenta con los datos originales de la operacion.", "OPERATION_CONFLICT");
+    if (saved[3] === "completed") return Object.assign(renewalOperationResult_(plan, operationId), { replayed: true });
+  } else {
+    plan = buildRenewalOperationPlan_(payload, action);
+    const pending = rows.some(function (row, rowIndex) {
+      return row[3] === "pending" && JSON.parse(journal.getRange(rowIndex + 2, 5).getValues()[0][0]).inventory_id === plan.inventory_id;
+    });
+    if (pending) throw renewalOperationError_("Hay una renovacion pendiente de verificar para esta cuenta. Reintenta la operacion original.", "OPERATION_PENDING");
+    const serialized = JSON.stringify(plan);
+    if (serialized.length > 45000) throw renewalOperationError_("Los datos de esta operacion superan el limite permitido.", "VALIDATION");
+    journalRow = journal.getLastRow() + 1;
+    journal.getRange(journalRow, 1, 1, 6).setValues([[operationId, action, String(payload.id), "pending", serialized, new Date().toISOString()]]);
+    SpreadsheetApp.flush();
+  }
+  // Valida todas las filas antes de reanudar, para no pisar cambios posteriores.
+  const writes = plan.entries.map(function (entry) {
+    const sheet = spreadsheet.getSheetByName(entry.sheet);
+    const row = findRowById_(sheet, entry.id);
+    if (row < 2) throw renewalOperationError_("El registro de la operacion ya no existe.", "OPERATION_CONFLICT");
+    const current = sheet.getRange(row, 1, 1, entry.after.length).getValues()[0];
+    const same = JSON.stringify(current);
+    if (same !== JSON.stringify(entry.before) && same !== JSON.stringify(entry.after)) {
+      throw renewalOperationError_("El registro cambio durante la renovacion. Requiere revision antes de continuar.", "OPERATION_CONFLICT");
+    }
+    return { entry: entry, sheet: sheet, row: row, applied: same === JSON.stringify(entry.after) };
+  });
+  writes.forEach(function (write) {
+    if (write.applied) return;
+    const headers = write.entry.sheet === INVENTORY_SHEET_NAME ? INVENTORY_HEADERS : write.entry.sheet === ORDERS_SHEET_NAME ? ORDER_HEADERS : RENEWAL_HEADERS;
+    formatTextRow_(write.sheet, headers, write.entry.text, write.row);
+    write.sheet.getRange(write.row, 1, 1, write.entry.after.length).setValues([write.entry.after]);
+  });
+  SpreadsheetApp.flush();
+  journal.getRange(journalRow, 4).setValue("completed");
+  journal.getRange(journalRow, 6).setValue(new Date().toISOString());
+  SpreadsheetApp.flush();
+  console.log(JSON.stringify({ action: action, operation_id: operationId, duration_ms: Date.now() - started, records: plan.entries.length }));
+  return renewalOperationResult_(plan, operationId);
+}
+
+function uploadOperationProof_(payload) {
+  const operationId = validateOperationId_(payload.operation_id);
+  const proof = payload.proof || {};
+  if (!proof.contenido_base64) throw new Error("Adjunta una imagen o PDF del comprobante.");
+  const folder = DriveApp.getFolderById(String(payload.proof_drive_folder_id || PROOF_DRIVE_FOLDER_ID));
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(proof.contenido_base64))
+    .map(function (byte) { return (byte & 255).toString(16).padStart(2, "0"); }).join("").slice(0, 20);
+  const prefix = "renovacion-" + operationId + "-" + digest + "-";
+  const name = prefix + sanitizeFileName_(proof.nombre || "comprobante");
+  // Este bloqueo coordina solo subidas; no mantiene el bloqueo de escrituras de Sheets.
+  const lock = LockService.getUserLock(); lock.waitLock(10000);
+  try {
+    const files = folder.getFilesByName(name);
+    if (files.hasNext()) {
+      const file = files.next(); return { id: file.getId(), nombre: file.getName(), url: file.getUrl() };
+    }
+    return uploadProofFile_(proof, payload.proof_drive_folder_id, prefix);
+  } finally { lock.releaseLock(); }
+}
+
+function getRenewalOperationStatus_(operationId) {
+  validateOperationId_(operationId);
+  const journal = getSpreadsheet_().getSheetByName("OperacionesRenovacion");
+  if (!journal) return { state: "not_started" };
+  const row = findRowById_(journal, operationId);
+  if (row < 2) return { state: "not_started" };
+  const values = journal.getRange(row, 1, 1, 6).getValues()[0];
+  return { state: values[3], action: values[1], target_id: values[2],
+    result: values[3] === "completed" ? renewalOperationResult_(JSON.parse(values[4]), operationId) : null };
 }

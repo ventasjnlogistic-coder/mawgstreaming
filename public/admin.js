@@ -823,7 +823,7 @@ async function apiRequest(url, options = {}) {
 async function performApiRequest(url, options = {}) {
   const generation = adminReadGeneration;
   const method = String(options.method || "GET").toUpperCase();
-  const isAdminRead = method === "GET" && String(url).startsWith("/api/admin/") && !String(url).includes("/session");
+  const isAdminRead = method === "GET" && String(url).startsWith("/api/admin/") && !String(url).includes("/session") && !String(url).includes("/operaciones-renovacion/");
   const cacheKey = isAdminRead ? String(url) : "";
   const cached = cacheKey ? adminReadCache.get(cacheKey) : null;
   const now = Date.now();
@@ -842,7 +842,8 @@ async function performApiRequest(url, options = {}) {
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 20_000);
+    const renewalWrite = method !== "GET" && /\/(renovar|confirmar)$/.test(String(url));
+    const timeout = window.setTimeout(() => controller.abort(), renewalWrite ? 75_000 : 20_000);
 
     try {
       const startedAt = performance.now();
@@ -879,6 +880,7 @@ async function performApiRequest(url, options = {}) {
         const data = await response.json().catch(() => null);
         const error = new Error(data?.error || `No se pudo completar la operacion. Estado HTTP ${response.status}.`);
         error.status = response.status;
+        error.code = data?.code;
         error.retryable = isAdminRead && (response.status === 429 || response.status >= 500);
         throw error;
       }
@@ -897,7 +899,9 @@ async function performApiRequest(url, options = {}) {
       }
       return data;
     } catch (error) {
-      lastError = error?.name === "AbortError" ? new Error("Google Apps Script demoro demasiado en responder.") : error;
+      lastError = error?.name === "AbortError" ? new Error(method === "GET"
+        ? "Google Apps Script demoro demasiado en responder."
+        : "No se pudo verificar el guardado. Reintenta la misma operacion con los mismos datos.") : error;
       const retryable = isAdminRead && (lastError.retryable || lastError.message === "Google Apps Script demoro demasiado en responder." || /fetch failed/i.test(lastError.message));
       if (!retryable || attempt === attempts - 1) {
         break;
@@ -3784,14 +3788,74 @@ async function saveRenewal(form) {
   setStatus(`Renovacion ${renewalId} guardada.`);
 }
 
+const pendingRenewalOperations = new Map();
+const freshRenewalOperationIds = new Set();
+function renewalOperationKey(resource) {
+  return "mawg.renewal.operation:" + (sessionUser?.usuario || "current") + ":" + resource;
+}
+function getRenewalOperationId(resource) {
+  const key = renewalOperationKey(resource);
+  if (pendingRenewalOperations.has(key)) return pendingRenewalOperations.get(key);
+  let id;
+  try { id = window.sessionStorage.getItem(key); } catch {}
+  if (!id) { id = crypto.randomUUID(); freshRenewalOperationIds.add(id); }
+  pendingRenewalOperations.set(key, id);
+  try { window.sessionStorage.setItem(key, id); } catch {}
+  return id;
+}
+function finishRenewalOperation(resource) {
+  const key = renewalOperationKey(resource);
+  pendingRenewalOperations.delete(key);
+  try { window.sessionStorage.removeItem(key); } catch {}
+}
+function recoveredRenewalResult(resource, status) {
+  const targetId = decodeURIComponent(resource.split("/").at(-2));
+  const action = resource.endsWith("/confirmar") ? "renewals.confirm" : "inventory.renew";
+  if (status.state !== "completed" || status.target_id !== targetId || status.action !== action) return null;
+  return action === "renewals.confirm" ? status.result : { ...status.result.item, updated_order: status.result.order };
+}
+async function requestRenewalWrite(resource, options) {
+  const operationId = getRenewalOperationId(resource);
+  const statusUrl = "/api/admin/operaciones-renovacion/" + encodeURIComponent(operationId);
+  // Al reintentar, incluso despues de recargar, consulta primero el guardado anterior.
+  if (!freshRenewalOperationIds.delete(operationId)) {
+    try {
+      const recovered = recoveredRenewalResult(resource, await apiRequest(statusUrl, { forceRefresh: true }));
+      if (recovered) return recovered;
+    } catch { /* El reintento mantiene el mismo identificador. */ }
+  }
+  try { return await apiRequest(resource, options); }
+  catch (error) {
+    if ((error.status && error.status < 500) || (error.code && error.code !== "RESULT_UNKNOWN")) throw error;
+    setStatus("La respuesta no llego. Verificando el resultado de la renovacion...");
+    try {
+      const recovered = recoveredRenewalResult(resource, await apiRequest(statusUrl, { forceRefresh: true }));
+      if (recovered) return recovered;
+    } catch { /* Se conserva el ID para recuperar la misma operacion. */ }
+    throw new Error("No se pudo verificar el resultado. Conserva los datos y reintenta la misma renovacion; no se duplicara el guardado.");
+  }
+}
+
+function updateRenewalOrder(order) {
+  if (!order) return;
+  const index = orders.findIndex((entry) => entry.pedido_id === order.pedido_id);
+  if (index >= 0) orders[index] = normalizeInventoryOrder(order);
+}
+
 async function confirmRenewal(form) {
   const renewalId = form.dataset.renewalId;
   let updatedItem = null;
-  const result = await apiRequest(`/api/admin/renovaciones/${encodeURIComponent(renewalId)}/confirmar`, {
+  const resource = `/api/admin/renovaciones/${encodeURIComponent(renewalId)}/confirmar`;
+  const formData = getRenewalFormData(form);
+  formData.set("operation_id", getRenewalOperationId(resource));
+  setStatus("Confirmando renovacion. Espera mientras se verifica el guardado...");
+  const result = await requestRenewalWrite(resource, {
     method: "POST",
     headers: {},
-    body: getRenewalFormData(form),
+    body: formData,
   });
+  finishRenewalOperation(resource);
+  updateRenewalOrder(result.order);
   const saved = normalizeRenewal(result.renewal);
   const index = renewals.findIndex((renewal) => renewal.renovacion_id === renewalId);
 
@@ -4757,6 +4821,7 @@ renewalEditor?.addEventListener("click", async (event) => {
     return;
   }
 
+  if (button.disabled) return;
   const form = button.closest(".renewal-form");
   button.disabled = true;
 
@@ -4976,18 +5041,24 @@ releaseInventoryButton?.addEventListener("click", async () => {
 });
 
 renewInventoryButton?.addEventListener("click", async () => {
+  if (renewInventoryButton.disabled) return;
   if (!selectedInventoryId) {
     setStatus("Selecciona una cuenta para renovar.", true);
     return;
   }
 
   const item = getInventoryFormItem();
+  const inventoryId = selectedInventoryId;
+  const resource = `/api/admin/inventario/${encodeURIComponent(inventoryId)}/renovar`;
+  renewInventoryButton.disabled = true;
+  setStatus("Renovando cuenta. Espera mientras se verifica el guardado...");
 
   try {
     const updated = normalizeInventoryItem(
-      await apiRequest(`/api/admin/inventario/${encodeURIComponent(selectedInventoryId)}/renovar`, {
+      await requestRenewalWrite(resource, {
         method: "PUT",
         body: JSON.stringify({
+          operation_id: getRenewalOperationId(resource),
           fecha_compra: item.fecha_compra,
           fecha_vencimiento_cliente: item.fecha_vencimiento_cliente,
           proveedor: item.proveedor,
@@ -4996,19 +5067,23 @@ renewInventoryButton?.addEventListener("click", async () => {
         }),
       })
     );
-    const index = inventoryItems.findIndex((entry) => entry.inventario_id === selectedInventoryId);
+    finishRenewalOperation(resource);
+    updateRenewalOrder(updated.updated_order);
+    const index = inventoryItems.findIndex((entry) => entry.inventario_id === inventoryId);
     if (index >= 0) {
       inventoryItems[index] = updated;
     }
     renderInventoryList();
     renderProviderPurchases();
-    fillInventoryForm(updated);
+    if (selectedInventoryId === inventoryId) fillInventoryForm(updated);
     renderOrders();
     renderDashboard();
     renderReports();
-    setStatus(`Cuenta ${selectedInventoryId} renovada.`);
+    setStatus(`Cuenta ${inventoryId} renovada.`);
   } catch (error) {
     setStatus(error.message, true);
+  } finally {
+    renewInventoryButton.disabled = false;
   }
 });
 

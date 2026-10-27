@@ -63,6 +63,7 @@ APPS_SCRIPT_CATALOG_URL=<url_del_web_app_de_apps_script>
 APPS_SCRIPT_ADMIN_TOKEN=<token_admin>
 APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID=<id_carpeta_drive>
 APPS_SCRIPT_TIMEOUT_MS=15000
+APPS_SCRIPT_OPERATION_TIMEOUT_MS=30000
 PUBLIC_API_CACHE_TTL_MS=120000
 PROOF_UPLOAD_MAX_MB=8
 ```
@@ -109,6 +110,7 @@ CATALOG_STORAGE = "apps-script"
 # Mantener en "apps-script" durante la migracion. Solo despues de validar D1:
 OPERATIONS_STORAGE = "apps-script"
 APPS_SCRIPT_TIMEOUT_MS = "15000"
+APPS_SCRIPT_OPERATION_TIMEOUT_MS = "30000"
 PUBLIC_API_CACHE_TTL_MS = "120000"
 PROOF_UPLOAD_MAX_MB = "8"
 SESSION_MAX_AGE_HOURS = "24"
@@ -187,6 +189,7 @@ APPS_SCRIPT_CATALOG_URL=<url_del_web_app_de_apps_script>
 APPS_SCRIPT_ADMIN_TOKEN=<token_admin>
 APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID=<id_carpeta_drive>
 APPS_SCRIPT_TIMEOUT_MS=15000
+APPS_SCRIPT_OPERATION_TIMEOUT_MS=30000
 PUBLIC_API_CACHE_TTL_MS=120000
 ADMIN_USER=admin-de-respaldo
 ADMIN_PASSWORD=clave-de-respaldo
@@ -366,6 +369,7 @@ APPS_SCRIPT_CATALOG_URL=<url_del_web_app_de_apps_script>
 APPS_SCRIPT_ADMIN_TOKEN=<token_admin>
 APPS_SCRIPT_PROOF_DRIVE_FOLDER_ID=<id_carpeta_drive>
 APPS_SCRIPT_TIMEOUT_MS=15000
+APPS_SCRIPT_OPERATION_TIMEOUT_MS=30000
 PROOF_UPLOAD_MAX_MB=8
 ```
 
@@ -550,3 +554,83 @@ La auditoria en Workers tambien se guarda en `SECURITY_STATE` (ultimos 1000 even
 `npm run test:worker` empaqueta sin desplegar y ejecuta una prueba en el runtime local de Cloudflare con un Apps Script simulado. Comprueba login, migracion de contrasena, revocacion, auditoria y logout sin consultar Sheets de produccion.
 
 El arranque del panel solicita solo las dependencias de la seccion abierta. Por ejemplo, abrir Plantillas ya no carga pedidos, inventario y proveedores; al navegar a otra seccion se cargan sus modulos pendientes. Dashboard y Reportes siguen reuniendo los datos permitidos para calcular sus indicadores.
+
+### Medicion de rendimiento del administrador
+
+El panel comparte lecturas GET simultaneas del mismo recurso y reutiliza su cache vigente. Las escrituras invalidan la cache al empezar y terminar; una lectura iniciada antes de guardar no vuelve a almacenarse en cache.
+
+Para medir en la web desplegada, abre las herramientas de desarrollador del navegador y ejecuta:
+
+```js
+window.adminPerformance.clear();
+// Navega a inventario, pedidos o renovaciones y vuelve a esta consola.
+console.table(window.adminPerformance.snapshot());
+```
+
+Se conservan como maximo 200 registros locales en memoria: recurso sin identificadores ni parametros, metodo, duracion en milisegundos, estado HTTP e intento. La duracion mide la espera de fetch hasta recibir la respuesta; no incluye el procesamiento de JSON ni el renderizado. La cache y las lecturas compartidas no agregan solicitudes al registro. No se envian estas metricas a ningun servicio y se borran al recargar.
+
+Compara el mismo recorrido antes y despues de desplegar, con cantidades de datos equivalentes. Estos cambios no activan D1 ni requieren actualizar Apps Script.
+
+### Fase 2: acceso a Sheets y cache de Apps Script
+
+La asignacion de combos lee el inventario una vez y busca las cuentas en memoria; conserva las escrituras en las filas seleccionadas. Las cabeceras se corrigen con una sola escritura y el formato de texto por fila se aplica mediante RangeList.
+
+Las acciones de escritura conocidas y autorizadas utilizan un bloqueo de script (espera maxima de 10 segundos). Al terminar, incluso ante errores parciales, se ejecuta flush y se cambia la version de cache de las entidades afectadas. Las lecturas en curso conservan su version anterior, por lo que no pueden repoblar la cache vigente. Esto evita asignaciones concurrentes dentro del Web App; Sheets no ofrece rollback automatico de operaciones que modifican varias hojas. Una operacion larga puede hacer esperar a otro guardado.
+
+El cache conserva su duracion de 180 segundos y su limite preventivo de 90000 bytes, medidos en UTF8. Sus versiones se guardan en propiedades del script y no se borran junto con el cache. Las ediciones manuales en Sheets pueden tardar hasta 180 segundos en reflejarse en este cache; los cambios externos al Web App no disparan su invalidacion.
+
+Para aplicar esta fase:
+
+1. Sube scripts/google-apps-script-catalogo.gs, test/apps-script-performance.test.js y este README al repositorio.
+2. Copia el script actualizado en tu proyecto de Google Apps Script, conservando tus valores reales de ADMIN_TOKEN, SPREADSHEET_ID y configuracion de Drive.
+3. Publica una nueva version de la implementacion Web App existente, conservando su URL.
+4. Comprueba una compra recibida (inventario generado como reservado), una asignacion de combo y la actualizacion de una plantilla.
+
+Esta fase no requiere cambios de configuracion en Cloudflare ni activa D1. Las pruebas locales simulan los servicios de Google; los tiempos reales deben medirse despues de actualizar el Web App.
+
+Referencia de formato agrupado: https://developers.google.com/apps-script/reference/spreadsheet/range-list
+
+### Fase 3: listas y carga del navegador
+
+Inventario, pedidos, renovaciones y cuentas por vencer muestran 30 registros por pagina. Los filtros se aplican a todos los registros cargados y vuelven a la primera pagina al cambiar; los indicadores y reportes conservan los datos completos. Esta paginacion reduce elementos del DOM, no la cantidad de datos transferidos desde Sheets.
+
+Las busquedas esperan 200 ms sin nuevas pulsaciones. Seleccionar una cuenta actualiza su resaltado sin reconstruir la lista. Dashboard y Reportes no se recalculan mientras estan ocultos; se actualizan al abrirlos.
+
+El nuevo public/admin-reports.js se descarga solo al entrar en Reportes. Debe publicarse junto con public/admin.js. El build genera tambien public/dist/admin-reports.js. La busqueda de inventario en reportes usa un indice en memoria por identificador.
+
+Cloudflare servia directamente los fuentes de public. Ahora wrangler.toml incluye las cinco URLs de CSS y JavaScript en run_worker_first para que las rutas existentes seleccionen dist en produccion y comprueben la sesion en los scripts del administrador. Estas solicitudes ejecutan el Worker; las imagenes siguen siendo assets directos. Referencia: https://developers.cloudflare.com/workers/static-assets/binding/
+
+La tienda ya usaba imagenes con carga diferida y decodificacion asincrona; se completo decoding=async en la vista previa del administrador. No se modificaron imagenes ni sus URLs.
+
+Para publicar, sube server.js, wrangler.toml, scripts/build-assets.js, public/admin.js, public/admin-reports.js, public/styles.css y public/dist/ junto con las pruebas y este README. Despliega con npm run build y npx wrangler deploy como antes; no requiere actualizar Apps Script ni activar D1.
+
+Verifica navegacion de paginas con mas de 30 registros, busquedas, seleccion y guardado de una cuenta, pedidos y apertura de Reportes. Las pruebas automatizadas cubren paginacion y calculos con los scripts originales y minificados; falta la comprobacion visual y de tiempos en la web desplegada.
+
+En Workers, sendPublicFile entrega estos recursos mediante el binding ASSETS (sin lecturas de disco); en Node conserva su entrega por archivos y gzip. La comprobacion del runtime incluye recursos minificados, respuesta 304 y bloqueo de Reportes sin sesion.
+
+### Renovaciones coordinadas y recuperacion de respuestas perdidas
+
+Con Apps Script activo, renovar inventario usa inventory.renew y confirmar pago usa renewals.confirm: una solicitud al Web App en lugar de cinco o siete. Si adjuntas un archivo, proof.upload se ejecuta primero y la confirmacion recibe solamente su URL. Un error de Drive detiene la confirmacion. Estas acciones nuevas requieren publicar la version actualizada del script; no se utiliza el flujo antiguo como respaldo.
+
+El script crea automaticamente OperacionesRenovacion con seis columnas: operation_id, action, target_id, state, plan, updated_at. El plan contiene las filas anteriores y previstas de inventario, pedido y renovacion; necesita los mismos permisos privados que las hojas de inventario, porque incluye datos operativos y credenciales. No debe compartirse publicamente ni editarse o borrarse mientras haya operaciones pendientes.
+
+Todas las filas y la fecha se validan antes de guardar. El plan se persiste antes de las escrituras. Un bloqueo de script coordina la operacion completa; se confirma Sheets y se invalida el cache de las entidades afectadas al terminar. No hay transacciones ni rollback automatico en Sheets: si falla una escritura, el mismo ID permite completar las restantes. El reintento compara las filas actuales con el estado anterior o previsto y se detiene si detecta cambios ajenos. Los registros completed conservan el resultado para responder sin repetir escrituras.
+
+La busqueda del registro de operaciones lee solo sus cuatro columnas de metadatos; el plan completo se consulta para la operacion solicitada y para pendientes. No se incluye ningun archivo base64 en el plan. Conviene revisar el crecimiento de esta hoja y definir una retencion de operaciones completadas antes de archivarlas; no existe limpieza automatica que pueda borrar recuperaciones pendientes.
+
+El panel guarda solamente el ID de operacion en sessionStorage, separado por usuario y recurso. Mantiene el mismo ID al fallar o recargar la pesta?a y lo elimina tras recibir un resultado correcto. Un reintento consulta primero GET /api/admin/operaciones-renovacion/:id; si se completo, recupera el resultado sin reenviar archivo ni escritura. Tras una perdida de respuesta tambien consulta ese estado. No reintenta escrituras automaticamente. Si sigue pendiente, conserva los datos originales (y el mismo archivo si lo habia) y vuelve a pulsar el boton. Otra operacion sobre esa cuenta se bloquea mientras haya una pendiente; un conflicto por edicion externa requiere revision de las filas y del plan, no borrar el registro a ciegas.
+
+El comprobante reutiliza un nombre asociado al ID y a una huella de contenido: el mismo archivo no se vuelve a crear en Drive al reintentar. Su bloqueo de subidas es distinto al bloqueo de escrituras en Sheets. Un cambio de archivo en un reintento pendiente se considera otra entrada y puede requerir revision; usa el archivo original.
+
+APPS_SCRIPT_OPERATION_TIMEOUT_MS=30000 limita cada llamada coordinada y la subida. Las lecturas conservan APPS_SCRIPT_TIMEOUT_MS=15000. El panel espera hasta 75 segundos por la escritura completa para permitir subida mas confirmacion; eso es un limite, no un tiempo de respuesta esperado. Si se modifica este presupuesto debe revisarse tambien el del navegador. Las renovaciones configuradas en Apps Script nunca cambian automaticamente a JSON por timeout, error de red o accion no soportada. El modo JSON explicito y D1 mantienen sus rutas anteriores.
+
+Los registros tecnicos incluyen action, operation_id, duration_ms y wait_ms (espera de bloqueo), sin cuerpos, claves ni mensajes de clientes. Compara estos tiempos despues de publicar; las pruebas locales no miden la latencia real de Google.
+
+Publicacion, en este orden:
+
+1. Copia scripts/google-apps-script-catalogo.gs en tu proyecto de Apps Script conservando tu token, ID de spreadsheet y carpeta de Drive. Publica una nueva version de la implementacion existente, con la misma URL.
+2. Sube server.js, src/services/appsScript/operationClient.js, src/services/inventory/appsScriptInventoryStore.js, src/services/inventory/index.js, src/services/renewals/appsScriptRenewalStore.js, src/services/renewals/index.js, public/admin.js, public/dist/admin.js, wrangler.toml, .env.example, las nuevas pruebas y este README.
+3. Despliega Cloudflare con npm run build y npx wrangler deploy. OPERATIONS_STORAGE sigue en apps-script.
+4. Recarga el panel. Comprueba una renovacion con referencia, otra con comprobante y la sincronizacion de la cuenta y del pedido. La hoja OperacionesRenovacion debe mostrar completed en las operaciones terminadas.
+
+Pruebas nuevas: renewal-operations.test.js, renewal-transport.test.js, renewal-http.test.js y admin-renewal-recovery.test.js. Simulan Sheets/Drive y verifican recuperacion, conflictos, permisos de estado y numero de llamadas; no escriben en Google.

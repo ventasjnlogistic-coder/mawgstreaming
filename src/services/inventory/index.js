@@ -18,6 +18,7 @@ function createInventoryStore(env = process.env) {
         endpointUrl: String(env.APPS_SCRIPT_CATALOG_URL || "").trim(),
         adminToken: String(env.APPS_SCRIPT_ADMIN_TOKEN || "").trim(),
         timeoutMs: env.APPS_SCRIPT_TIMEOUT_MS,
+        operationTimeoutMs: env.APPS_SCRIPT_OPERATION_TIMEOUT_MS,
       });
     }
   }
