@@ -7,6 +7,7 @@ const { Miniflare, convertV4MiniflareOptions } = require("miniflare");
 // Ejecutar despues de generar .tmp-worker-check/worker.js con Wrangler --dry-run.
 test("login, migracion de clave, revocacion y logout en el runtime real de Workers", { timeout: 60000 }, async (t) => {
   let password = "worker-secret";
+  const assetRequests = [];
   const mock = http.createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
@@ -36,6 +37,11 @@ test("login, migracion de clave, revocacion y logout en el runtime real de Worke
       ADMIN_USER: "emergency", ADMIN_PASSWORD: "emergency-secret", SESSION_SECRET: "worker-test-secret-with-enough-length",
       APPS_SCRIPT_CATALOG_URL: `http://127.0.0.1:${mock.address().port}/exec`, APPS_SCRIPT_ADMIN_TOKEN: "worker-private-token",
     },
+    serviceBindings: { ASSETS: async (request) => {
+      const pathname = new URL(request.url).pathname;
+      assetRequests.push(pathname);
+      return pathname === "/admin" ? new Response("<!doctype html><title>Admin test</title>", { headers: { "Content-Type": "text/html" } }) : new Response("not found", { status: 404 });
+    } },
     kvNamespaces: ["SESSIONS"],
     durableObjects: { SECURITY_STATE: { className: "SecurityState", useSQLite: true } },
   }] }));
@@ -49,7 +55,15 @@ test("login, migracion de clave, revocacion y logout en el runtime real de Worke
       assert.equal(response.status, 200, await response.text());
       return response.headers.getSetCookie().find((value) => value.startsWith("streamhub.sid=")).split(";")[0];
     };
+    const anonymousPage = await mf.dispatchFetch("http://worker.test/admin", { redirect: "manual" });
+    assert.equal(anonymousPage.status, 302);
+    assert.equal(anonymousPage.headers.get("location"), "/login.html");
+    assert.equal(assetRequests.length, 0);
     const cookie = await login();
+    const adminPage = await request("/admin.html", null, cookie);
+    assert.equal(adminPage.status, 200);
+    assert.match(await adminPage.text(), /Admin test/);
+    assert.deepEqual(assetRequests, ["/admin"]);
     assert.match(password, /^scrypt\$v1\$/);
     assert.equal((await (await request("/api/admin/session", null, cookie)).json()).authenticated, true);
     assert.equal((await request("/api/admin/sesiones/revocar", { usuario: "operator" }, cookie)).status, 200);

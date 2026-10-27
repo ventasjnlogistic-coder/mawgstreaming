@@ -280,13 +280,18 @@ async function sendWorkerAsset(req, res, fileName, cacheControl) {
   try {
     const headers = {};
     if (req.get("if-none-match")) headers["If-None-Match"] = req.get("if-none-match");
-    const assetUrl = new URL("/" + (isProduction ? "dist/" : "") + fileName, "https://assets.internal");
+    const html = fileName.endsWith(".html");
+    // Assets normaliza /admin.html a /admin. Pedir la ruta canonica evita
+    // devolver un redirect al mismo handler y formar un bucle.
+    const pathname = html ? (fileName === "index.html" ? "/" : "/" + fileName.slice(0, -5))
+      : "/" + (isProduction ? "dist/" : "") + fileName;
+    const assetUrl = new URL(pathname, "https://assets.internal");
     let response = await runtimeEnv.ASSETS.fetch(new Request(assetUrl, { headers }));
-    if (response.status === 404 && isProduction) {
+    if (response.status === 404 && isProduction && !html) {
       response = await runtimeEnv.ASSETS.fetch(new Request(new URL("/" + fileName, assetUrl), { headers }));
     }
     res.setHeader("Cache-Control", cacheControl);
-    for (const name of ["Content-Type", "ETag", "Last-Modified"]) {
+    for (const name of ["Content-Type", "ETag", "Last-Modified", "Location"]) {
       if (response.headers.has(name)) res.setHeader(name, response.headers.get(name));
     }
     res.status(response.status);

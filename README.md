@@ -634,3 +634,7 @@ Publicacion, en este orden:
 4. Recarga el panel. Comprueba una renovacion con referencia, otra con comprobante y la sincronizacion de la cuenta y del pedido. La hoja OperacionesRenovacion debe mostrar completed en las operaciones terminadas.
 
 Pruebas nuevas: renewal-operations.test.js, renewal-transport.test.js, renewal-http.test.js y admin-renewal-recovery.test.js. Simulan Sheets/Drive y verifican recuperacion, conflictos, permisos de estado y numero de llamadas; no escriben en Google.
+
+### Entrada al administrador en Cloudflare
+
+Las rutas /admin, /admin/ y /admin.html deben estar incluidas en run_worker_first para comprobar la sesion antes de servir el HTML. De lo contrario Assets puede entregar el panel sin sesion mientras admin.js responde 401, dejando controles inactivos. El Worker solicita el HTML al binding ASSETS por su ruta canonica /admin, evitando el redirect automatico de /admin.html y bucles. Publica server.js y wrangler.toml juntos.

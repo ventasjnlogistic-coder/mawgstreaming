@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat_v2", "enable_nodejs_http_server_modules"]
 directory = "./public"
 binding = "ASSETS"
 # CSS y scripts pasan por las rutas existentes: dist y autenticacion del admin.
-run_worker_first = ["/api/*", "/styles.css", "/script.js", "/login.js", "/admin.js", "/admin-reports.js"]
+run_worker_first = ["/admin", "/admin/", "/admin.html", "/api/*", "/styles.css", "/script.js", "/login.js", "/admin.js", "/admin-reports.js"]
 
 [vars]
 NODE_ENV = "production"
