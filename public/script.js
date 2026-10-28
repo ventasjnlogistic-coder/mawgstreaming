@@ -168,7 +168,7 @@ function renderProductCard(product) {
   const disponible = estado === "disponible" && (stock > 0 || venderSinStock);
   const precio = formatPrice(product.precio);
   const cta = product.cta || "Comprar";
-  const estadoTexto = stock > 0 ? `Stock: ${stock}` : venderSinStock ? "Sin stock, venta activa" : "Agotado";
+  const estadoTexto = stock > 0 ? `Stock: ${stock}` : venderSinStock ? "Disponible, venta activa" : "Agotado";
   const imagen = product.imagen
     ? `<img src="${escapeHtml(product.imagen)}" alt="${escapeHtml(product.nombre)}" loading="lazy" decoding="async" />`
     : `<div class="product-placeholder" aria-hidden="true">${escapeHtml(product.tipo || "Producto")}</div>`;
