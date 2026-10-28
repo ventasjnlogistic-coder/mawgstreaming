@@ -1281,7 +1281,7 @@ body.modal-open {
 
 .admin-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
   gap: 1.5rem;
   align-items: end;
   padding: clamp(1.4rem, 4vw, 2.4rem);
@@ -1292,6 +1292,18 @@ body.modal-open {
     linear-gradient(180deg, rgba(222, 242, 241, 0.16), rgba(23, 37, 42, 0.12));
   box-shadow: var(--shadow);
 }
+
+.admin-hero > * {
+  min-width: 0;
+}
+
+#adminStartupStatus,
+.admin-load-status {
+  grid-column: 1 / -1;
+}
+
+#adminStartupStatus[hidden] { display: none; }
+#adminStartupStatus a { text-decoration: underline; }
 
 .admin-load-status {
   display: flex;
@@ -3291,4 +3303,10 @@ textarea:focus,
   .product-description {
     text-align: left;
   }
+}
+
+@media (min-width: 981px) {
+  .admin-page .site-header { position: relative; }
+  .admin-page .admin-nav { flex-basis: 100%; justify-content: flex-start; gap: 0.5rem 1.1rem; }
+  .admin-page .admin-nav a, .admin-page .nav-logout { white-space: nowrap; }
 }

@@ -902,7 +902,7 @@ async function performApiRequest(url, options = {}) {
       lastError = error?.name === "AbortError" ? new Error(method === "GET"
         ? "Google Apps Script demoro demasiado en responder."
         : "No se pudo verificar el guardado. Reintenta la misma operacion con los mismos datos.") : error;
-      const retryable = isAdminRead && (lastError.retryable || lastError.message === "Google Apps Script demoro demasiado en responder." || /fetch failed/i.test(lastError.message));
+      const retryable = isAdminRead && (lastError.retryable || lastError.message === "Google Apps Script demoro demasiado en responder." || /fetch failed|failed to fetch|networkerror|network request failed|load failed/i.test(lastError.message));
       if (!retryable || attempt === attempts - 1) {
         break;
       }
@@ -947,12 +947,17 @@ async function loadAdminSession() {
   try {
     const session = await apiRequest("/api/admin/session");
     sessionUser = session.user || null;
+    if (!sessionUser) {
+      window.location.assign("/login");
+      throw new Error("La sesion termino. Inicia sesion nuevamente.");
+    }
     if (sessionUserBadge && sessionUser) {
       sessionUserBadge.textContent = `${sessionUser.nombre || sessionUser.usuario || "Usuario"} | ${sessionUser.rol || "admin"}`;
     }
     setAdminView(getInitialAdminView(), false);
-  } catch {
+  } catch (error) {
     sessionUser = null;
+    throw error;
   }
 }
 
@@ -3826,13 +3831,14 @@ async function requestRenewalWrite(resource, options) {
   }
   try { return await apiRequest(resource, options); }
   catch (error) {
-    if ((error.status && error.status < 500) || (error.code && error.code !== "RESULT_UNKNOWN")) throw error;
+    const connectionLost = /fetch failed|failed to fetch|networkerror|network request failed|load failed/i.test(error.message || "");
+    if ((error.status && error.status < 500) || (error.code && error.code !== "RESULT_UNKNOWN" && !connectionLost)) throw error;
     setStatus("La respuesta no llego. Verificando el resultado de la renovacion...");
     try {
       const recovered = recoveredRenewalResult(resource, await apiRequest(statusUrl, { forceRefresh: true }));
       if (recovered) return recovered;
     } catch { /* Se conserva el ID para recuperar la misma operacion. */ }
-    throw new Error("No se pudo verificar el resultado. Conserva los datos y reintenta la misma renovacion; no se duplicara el guardado.");
+    throw new Error("Se perdio la conexion al confirmar y no se pudo consultar el resultado. La renovacion podria estar guardada. Conserva el formulario y el comprobante; cuando vuelva la conexion, reintenta esta misma renovacion para recuperar la operacion.");
   }
 }
 
@@ -5423,9 +5429,17 @@ document.addEventListener("keydown", (event) => {
 
 async function initializeAdmin() {
   await loadAdminSession();
+  const startupStatus = document.querySelector("#adminStartupStatus");
+  if (startupStatus) startupStatus.hidden = true;
   await loadInitialAdminViewData(getInitialAdminView());
   adminInitialLoadComplete = true;
   setAdminView(getInitialAdminView(), false);
 }
 
-initializeAdmin();
+initializeAdmin().catch((error) => {
+  const startupStatus = document.querySelector("#adminStartupStatus");
+  if (startupStatus) {
+    startupStatus.hidden = false;
+    startupStatus.textContent = "No se pudo cargar el panel. Recarga la pagina o vuelve a iniciar sesion. " + (error.message || "");
+  }
+});

@@ -57,38 +57,39 @@
           </p>
         </div>
         <div class="admin-actions">
-          <span class="status-pill is-muted" id="sessionUserBadge">Sesion activa</span>
-          <button class="button button-primary" type="button" id="loadDashboardButton" data-admin-action="dashboard">
+          <span class="status-pill is-muted" id="sessionUserBadge">Verificando sesion</span>
+          <button class="button button-primary" type="button" id="loadDashboardButton" data-admin-action="dashboard" hidden>
             Recargar dashboard
           </button>
-          <button class="button button-primary" type="button" id="loadReportsButton" data-admin-action="reportes">
+          <button class="button button-primary" type="button" id="loadReportsButton" data-admin-action="reportes" hidden>
             Recargar reportes
           </button>
-          <button class="button button-primary" type="button" id="loadCatalogButton" data-admin-action="productos">
+          <button class="button button-primary" type="button" id="loadCatalogButton" data-admin-action="productos" hidden>
             Recargar catalogo
           </button>
-          <button class="button button-secondary" type="button" id="newProductButton" data-admin-action="productos">
+          <button class="button button-secondary" type="button" id="newProductButton" data-admin-action="productos" hidden>
             Nuevo producto
           </button>
-          <button class="button button-primary" type="button" id="loadOrdersButton" data-admin-action="compras">
+          <button class="button button-primary" type="button" id="loadOrdersButton" data-admin-action="compras" hidden>
             Recargar pedidos
           </button>
-          <button class="button button-primary" type="button" id="loadInventoryButton" data-admin-action="inventario">
+          <button class="button button-primary" type="button" id="loadInventoryButton" data-admin-action="inventario" hidden>
             Recargar inventario
           </button>
-          <button class="button button-primary" type="button" id="loadSuppliersButton" data-admin-action="proveedores">
+          <button class="button button-primary" type="button" id="loadSuppliersButton" data-admin-action="proveedores" hidden>
             Recargar proveedores
           </button>
-          <button class="button button-primary" type="button" id="loadRenewalsButton" data-admin-action="renovaciones">
+          <button class="button button-primary" type="button" id="loadRenewalsButton" data-admin-action="renovaciones" hidden>
             Recargar renovaciones
           </button>
-          <button class="button button-primary" type="button" id="loadTemplatesButton" data-admin-action="plantillas">
+          <button class="button button-primary" type="button" id="loadTemplatesButton" data-admin-action="plantillas" hidden>
             Recargar plantillas
           </button>
-          <button class="button button-primary" type="button" id="loadAuditButton" data-admin-action="auditoria">
+          <button class="button button-primary" type="button" id="loadAuditButton" data-admin-action="auditoria" hidden>
             Recargar auditoria
           </button>
         </div>
+        <p id="adminStartupStatus" role="status">Cargando panel. Si la carga no termina, recarga la pagina o <a href="/login">inicia sesion de nuevo</a>.</p>
         <div class="admin-load-status" id="adminLoadStatus" aria-live="polite" aria-label="Estado de carga de modulos"></div>
       </section>
 
