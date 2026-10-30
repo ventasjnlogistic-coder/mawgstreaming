@@ -12,8 +12,28 @@ const DEFAULT_MESSAGE_TEMPLATES = [
     id: "renovacion",
     nombre: "Renovacion",
     asunto: "Alerta de vencimiento",
-    contenido:
-      "*:alerta: ALERTA DE VENCIMIENTO :alerta:*\n\n*:alerta: Hola {{cliente_nombre}}*\n\nPlataforma: {{producto_nombre}}\nPerfil: {{perfil_nombre}}\nVencimiento: {{vencimiento_formateado}}\n\n*:ojo_dialogo: SI NO HAY RESPUESTA, SE REALIZARA EL CORTE DEL SERVICIO.*\n\n*:check: CONFIRMAR LA RENOVACION DE SU SERVICIO*\n\n*:verde: PAGUE EN DALE - desde YAPE :morado:*\n                        *921 217 484*\n         :corona: A nombre de Luis M. Farro Z. :corona:\n          *(No escribir nada en la descripcion)*\n\n*:mano_dinero: Enviar la captura de pantalla del pago realizado.*\n\n*:stop: PAGO MALVERSADO SERA REPORTADO A LA PNP :stop:*\n\n*Muchas gracias :apreton_manos:*",
+    contenido: `⚠️*ALERTA DE VENCIMIENTO*⚠️
+
+🚨 Hola  *{{cliente_nombre}}*
+
+Plataforma: *{{producto_nombre}}*
+Perfil: *{{perfil_nombre}}*
+Vencimiento: *{{vencimiento_formateado}}*
+
+👁️‍🗨️ *SI NO HAY RESPUESTA, SE REALIZARÁ EL CORTE DEL SERVICIO.*
+
+✅ *CONFIRMAR LA RENOVACIÓN DE SU SERVICIO*
+
+🟢 *PAGUE EN DALE  - desde YAPE* 🟣
+                        _921 217 484_
+         👑 A nombre de Luis M. Farro Z. 👑
+          *(No escribir nada en la descripción)*
+
+🫰 *Enviar la captura de pantalla del pago realizado.*
+
+🛑 *PAGO MALVERSADO SERA REPORTADO A LA PNP* 🛑
+
+*Muchas gracias 🫱🏼‍🫲🏼*`,
     estado: "activo",
     orden: 2,
   },

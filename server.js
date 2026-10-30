@@ -58,6 +58,9 @@ const {
   normalizeSiteSetting,
   validateSiteSetting,
 } = require("./src/services/siteSettings/validation");
+const { createRequestMonitoring } = require("./src/http/requestMonitoring");
+const { createHealthRouter } = require("./src/http/healthRouter");
+const { createProductRouter } = require("./src/http/productRouter");
 
 const app = express();
 const port = Number(runtimeEnv.PORT || 3000);
@@ -82,6 +85,9 @@ const siteSettingStore = createSiteSettingStore(runtimeEnv);
 const userStore = createUserStore(runtimeEnv);
 const supplierStore = createSupplierStore(runtimeEnv);
 const auditStore = createAuditStore(runtimeEnv, securityNamespace);
+const requestMonitoring = createRequestMonitoring({
+  slowRequestMs: Number(runtimeEnv.SLOW_REQUEST_THRESHOLD_MS) > 0 ? Number(runtimeEnv.SLOW_REQUEST_THRESHOLD_MS) : 1000,
+});
 const d1SheetsImportService = new D1SheetsImportService({
   db: globalThis.__MAWG_D1__,
   sources: {
@@ -364,6 +370,7 @@ const proofRateLimit = createRateLimiter({
   message: "Demasiados comprobantes desde esta conexion. Intenta nuevamente en unos minutos.",
 });
 
+app.use(requestMonitoring.middleware);
 app.use(setSecurityHeaders);
 app.use(express.json({ limit: "1mb" }));
 app.use("/api/admin", (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
@@ -474,7 +481,11 @@ function safeCompare(left, right) {
 
 function logUnexpectedError(error) {
   if (!error?.statusCode || error.statusCode >= 500) {
-    console.error(error);
+    console.error(JSON.stringify({
+      event: "application_error",
+      name: error?.name || "Error",
+      status: Number(error?.statusCode) || 500,
+    }));
   }
 }
 
@@ -1922,38 +1933,39 @@ async function confirmRenewal(id, payload = {}) {
   };
 }
 
-app.get("/api/productos", async (req, res) => {
-  try {
-    await sendPublicApiJson(req, res, "products-with-stock", readProductsWithStock);
-  } catch (error) {
-    logUnexpectedError(error);
-    res.status(500).json({ error: "No se pudo cargar el catalogo." });
-  }
-});
+app.use("/api", createProductRouter({
+  sendPublicApiJson,
+  readProductsWithStock,
+  getCachedAdminProducts,
+  requireRead,
+  requirePermission,
+  normalizeProduct,
+  validateProduct,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+  clearPublicApiCache,
+  logUnexpectedError,
+}));
 
-app.get("/api/health/productos", async (_req, res) => {
-  try {
-    const products = await readProductsWithStock();
-    res.json({
-      ok: true,
-      count: products.length,
-      sample: products.slice(0, 3).map((product) => ({
-        id: product.id,
-        nombre: product.nombre,
-        estado: product.estado,
-        stock_disponible: product.stock_disponible,
-      })),
-    });
-  } catch (error) {
-    logUnexpectedError(error);
-    res.status(error.statusCode || 500).json({
-      ok: false,
-      error: error.message || "No se pudo cargar el catalogo.",
-      name: error.name || "",
-      statusCode: error.statusCode || 500,
-    });
-  }
-});
+app.use("/api/health", createHealthRouter({
+  monitoring: requestMonitoring,
+  runtime: {
+    NODE_ENV: runtimeEnv.NODE_ENV,
+    HOST: host,
+    PORT: port,
+    CATALOG_STORAGE: runtimeEnv.CATALOG_STORAGE,
+    OPERATIONS_STORAGE: runtimeEnv.OPERATIONS_STORAGE,
+    APPS_SCRIPT_CATALOG_URL: runtimeEnv.APPS_SCRIPT_CATALOG_URL,
+    APPS_SCRIPT_ADMIN_TOKEN: runtimeEnv.APPS_SCRIPT_ADMIN_TOKEN,
+  },
+  requireAdmin: requirePermission("*"),
+  checkReadiness: () => catalogStore.listProducts(),
+  readProductsWithStock,
+  userStore,
+  maskValue,
+  logUnexpectedError,
+}));
 
 app.get("/api/metodos-pago", async (req, res) => {
   try {
@@ -1970,49 +1982,6 @@ app.get("/api/configuracion-sitio", async (req, res) => {
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudo cargar la configuracion del sitio." });
-  }
-});
-
-app.get("/api/health/config", requirePermission("*"), (_req, res) => {
-  const appsScriptUrl = String(runtimeEnv.APPS_SCRIPT_CATALOG_URL || "").trim();
-  const adminToken = String(runtimeEnv.APPS_SCRIPT_ADMIN_TOKEN || "").trim();
-
-  res.json({
-    ok: true,
-    runtime: {
-      node_env: runtimeEnv.NODE_ENV || "",
-      host,
-      port,
-      catalog_storage: runtimeEnv.CATALOG_STORAGE || "",
-    },
-    apps_script: {
-      configured: Boolean(appsScriptUrl && adminToken),
-      url_present: Boolean(appsScriptUrl),
-      token_present: Boolean(adminToken),
-      url_hint: maskValue(appsScriptUrl),
-    },
-  });
-});
-
-app.get("/api/health/users", requirePermission("*"), async (_req, res) => {
-  try {
-    const user = await userStore.authenticate("__healthcheck__", "__healthcheck__");
-    res.json({
-      ok: true,
-      reachable: true,
-      unexpected_match: Boolean(user),
-    });
-  } catch (error) {
-    const message = String(error.message || "");
-    const invalidCredentials = message.toLowerCase().includes("usuario") || message.toLowerCase().includes("contrasena");
-
-    res.status(invalidCredentials ? 200 : error.statusCode || 500).json({
-      ok: invalidCredentials,
-      reachable: invalidCredentials,
-      message: invalidCredentials ? "UsuariosAdmin responde correctamente." : "",
-      error: invalidCredentials ? "" : message,
-      name: error.name || "",
-    });
   }
 });
 
@@ -2170,23 +2139,6 @@ app.post("/api/admin/sesiones/revocar", requirePermission("*"), async (req, res)
   res.json({ ok: true });
 });
 
-app.get("/api/admin/productos", requireRead("products"), async (_req, res) => {
-  try {
-    const products = await getCachedAdminProducts();
-    res.setHeader("Cache-Control", "no-store");
-    res.json(
-      [...products].sort((left, right) => {
-        const leftOrder = Number.isFinite(Number(left.orden)) ? Number(left.orden) : 999;
-        const rightOrder = Number.isFinite(Number(right.orden)) ? Number(right.orden) : 999;
-        return leftOrder - rightOrder || String(left.nombre || "").localeCompare(String(right.nombre || ""));
-      })
-    );
-  } catch (error) {
-    logUnexpectedError(error);
-    res.status(500).json({ error: "No se pudo cargar el catalogo." });
-  }
-});
-
 app.get("/api/admin/dashboard-snapshot", requireAuth, async (req, res) => {
   try {
     const permissions = getSessionPermissions(req);
@@ -2217,55 +2169,6 @@ app.get("/api/admin/dashboard-snapshot", requireAuth, async (req, res) => {
   } catch (error) {
     logUnexpectedError(error);
     res.status(500).json({ error: "No se pudo cargar el resumen operativo." });
-  }
-});
-
-app.post("/api/admin/productos", requirePermission("productos"), async (req, res) => {
-  try {
-    const product = normalizeProduct(req.body);
-    const validationError = validateProduct(product);
-
-    if (validationError) {
-      res.status(400).json({ error: validationError });
-      return;
-    }
-
-    const saved = await createProduct(product);
-    await clearPublicApiCache("products-with-stock");
-    res.status(201).json(saved);
-  } catch (error) {
-    logUnexpectedError(error);
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo crear el producto." });
-  }
-});
-
-app.put("/api/admin/productos/:id", requirePermission("productos"), async (req, res) => {
-  try {
-    const product = normalizeProduct({ ...req.body, id: req.body?.id || req.params.id });
-    const validationError = validateProduct(product);
-
-    if (validationError) {
-      res.status(400).json({ error: validationError });
-      return;
-    }
-
-    const saved = await updateProduct(req.params.id, product);
-    await clearPublicApiCache("products-with-stock");
-    res.json(saved);
-  } catch (error) {
-    logUnexpectedError(error);
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo actualizar el producto." });
-  }
-});
-
-app.delete("/api/admin/productos/:id", requirePermission("productos"), async (req, res) => {
-  try {
-    await deleteProduct(req.params.id);
-    await clearPublicApiCache("products-with-stock");
-    res.status(204).end();
-  } catch (error) {
-    logUnexpectedError(error);
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "No se pudo eliminar el producto." });
   }
 });
 
