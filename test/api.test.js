@@ -656,6 +656,30 @@ test("protege diagnosticos internos y rechaza credenciales mal formadas", async 
   }
 });
 
+test("expone salud publica, readiness y metricas administrativas con request ID", async () => {
+  const live = await request("/api/health/live");
+  assert.equal(live.response.status, 200);
+  assert.equal(live.data.ok, true);
+  assert.ok(live.response.headers.get("x-request-id"));
+
+  const ready = await request("/api/health/ready");
+  assert.equal(ready.response.status, 200);
+  assert.equal(ready.data.ok, true);
+
+  assert.equal((await request("/api/health/metrics")).response.status, 401);
+  const admin = await loginCookie("admin-test", "secret-test");
+  const metrics = await request("/api/health/metrics", { headers: { Cookie: admin } });
+  assert.equal(metrics.response.status, 200);
+  assert.ok(metrics.data.totalRequests >= 4);
+  assert.ok(metrics.data.statusClasses["2xx"] >= 2);
+
+  const config = await request("/api/health/config", { headers: { Cookie: admin } });
+  assert.equal(config.response.status, 200);
+  assert.ok(config.data.runtime.host);
+  assert.ok(config.data.runtime.port);
+  assert.equal("APPS_SCRIPT_ADMIN_TOKEN" in config.data, false);
+});
+
 test("la clave de entorno no anula una cuenta desactivada en el almacen", async () => {
   const file = process.env.USERS_JSON_PATH;
   const original = await fs.readFile(file, "utf8");

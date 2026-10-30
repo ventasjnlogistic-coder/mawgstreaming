@@ -34,3 +34,12 @@ test('ID recuperado tras recarga consulta el resultado sin reenviar formulario n
  const result=await h.c.requestRenewalWrite(url,{method:'POST'});
  assert.equal(result.renewal.estado,'renovado');assert.equal(h.calls.length,1);assert.match(h.calls[0],/operaciones-renovacion/);
 });
+
+ test('NetworkError al confirmar recupera el resultado aunque venga con codigo del servidor',async()=>{
+ const h=harness();h.c.apiRequest=async(url)=>{h.calls.push(url);if(!url.includes('/operaciones-renovacion/')){const error=new Error('NetworkError when attempting to fetch resource.');error.status=502;error.code='APPS_SCRIPT_ERROR';throw error;}return {state:'completed',action:'renewals.confirm',target_id:'R1',result:{renewal:{estado:'renovado'}}};};
+ const result=await h.c.requestRenewalWrite('/api/admin/renovaciones/R1/confirmar',{method:'POST'});assert.equal(result.renewal.estado,'renovado');assert.equal(h.calls.length,2);
+ });
+ test('desconexion completa conserva el ID y advierte que el resultado es desconocido',async()=>{
+ const h=harness(),url='/api/admin/renovaciones/R1/confirmar',id=h.c.getRenewalOperationId(url);h.c.apiRequest=async()=>{throw new Error('NetworkError when attempting to fetch resource.');};
+ await assert.rejects(h.c.requestRenewalWrite(url,{method:'POST'}),/podria estar guardada/);assert.equal(h.c.getRenewalOperationId(url),id);
+ });

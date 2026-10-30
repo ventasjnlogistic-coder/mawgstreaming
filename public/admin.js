@@ -1242,8 +1242,14 @@ function buildWhatsAppUrl(contact, message) {
   if (!phone) return "";
 
   const text = renderWhatsAppEmojis(message);
-  // Enlace HTTPS oficial: no depende de un protocolo instalado en el equipo.
-  return `https://wa.me/${phone}?${new URLSearchParams({ text }).toString()}`;
+  const device = typeof navigator === "undefined" ? {} : navigator;
+  const mobile = device.userAgentData?.mobile === true
+    || /Android|iPhone|iPad|iPod/i.test(device.userAgent || "")
+    || (/Macintosh/i.test(device.userAgent || "") && device.maxTouchPoints > 1);
+  // En PC evitamos la redireccion de wa.me al cliente de escritorio.
+  // El texto Unicode se codifica una sola vez en ambos destinos.
+  if (mobile) return `https://wa.me/${phone}?${new URLSearchParams({ text }).toString()}`;
+  return `https://web.whatsapp.com/send?${new URLSearchParams({ phone, text }).toString()}`;
 }
 
 function sumMoney(values) {
@@ -1864,28 +1870,28 @@ function buildGroupedRenewalMessage(group) {
     });
 
   return [
-    "*:alerta: ALERTA DE VENCIMIENTO :alerta:*",
+    "⚠️*ALERTA DE VENCIMIENTO*⚠️",
     "",
-    `*:alerta: Hola ${clientName}*`,
+    `🚨 Hola  *${clientName}*`,
     "",
     "Tienes los siguientes servicios por vencer:",
     "",
     lines.join("\n\n"),
     "",
-    "*:ojo_dialogo: SI NO HAY RESPUESTA, SE REALIZARA EL CORTE DEL SERVICIO.*",
+    "👁️‍🗨️ *SI NO HAY RESPUESTA, SE REALIZARÁ EL CORTE DEL SERVICIO.*",
     "",
-    "*:check: CONFIRMAR LA RENOVACION DE SU SERVICIO*",
+    "✅ *CONFIRMAR LA RENOVACIÓN DE SU SERVICIO*",
     "",
-    "*:verde: PAGUE EN DALE - desde YAPE :morado:*",
-    "                        *921 217 484*",
-    "         :corona: A nombre de Luis M. Farro Z. :corona:",
-    "          *(No escribir nada en la descripcion)*",
+    "🟢 *PAGUE EN DALE  - desde YAPE* 🟣",
+    "                        _921 217 484_",
+    "         👑 A nombre de Luis M. Farro Z. 👑",
+    "          *(No escribir nada en la descripción)*",
     "",
-    "*:mano_dinero: Enviar la captura de pantalla del pago realizado.*",
+    "🫰 *Enviar la captura de pantalla del pago realizado.*",
     "",
-    "*:stop: PAGO MALVERSADO SERA REPORTADO A LA PNP :stop:*",
+    "🛑 *PAGO MALVERSADO SERA REPORTADO A LA PNP* 🛑",
     "",
-    "*Muchas gracias :apreton_manos:*",
+    "*Muchas gracias 🫱🏼‍🫲🏼*",
   ].join("\n");
 }
 

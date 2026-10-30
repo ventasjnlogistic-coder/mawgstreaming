@@ -5,6 +5,7 @@ const { normalizeOrder, validateOrder, validateProof } = require("../src/service
 const { normalizeInventoryItem, validateInventoryItem } = require("../src/services/inventory/validation");
 const { normalizeRenewal, validateRenewal, validateRenewalConfirmation } = require("../src/services/renewals/validation");
 const { normalizeProvider, normalizeProviderPurchase, validateProvider, validateProviderPurchase } = require("../src/services/suppliers/validation");
+const { getDefaultMessageTemplates } = require("../src/services/messageTemplates/validation");
 
 test("normaliza productos y genera ID desde el nombre", () => {
   const product = normalizeProduct({ nombre: "Netflix Premium", precio: "12.50", plantilla_entrega: "Hola {{cliente_nombre}}" });
@@ -26,6 +27,20 @@ test("normaliza enlaces de Drive para imagenes de productos", () => {
 
 test("rechaza productos sin nombre", () => {
   assert.equal(validateProduct(normalizeProduct({ id: "sin-nombre" })), "El nombre es obligatorio.");
+});
+
+test("la plantilla predeterminada de renovacion conserva emojis y marcadores", () => {
+  const template = getDefaultMessageTemplates().find((entry) => entry.id === "renovacion");
+
+  assert.ok(template);
+  assert.match(template.contenido, /⚠️\*ALERTA DE VENCIMIENTO\*⚠️/);
+  assert.match(template.contenido, /👁️‍🗨️/);
+  assert.match(template.contenido, /🫱🏼‍🫲🏼/);
+  assert.match(template.contenido, /\{\{cliente_nombre\}\}/);
+  assert.match(template.contenido, /\{\{producto_nombre\}\}/);
+  assert.match(template.contenido, /\{\{perfil_nombre\}\}/);
+  assert.match(template.contenido, /\{\{vencimiento_formateado\}\}/);
+  assert.equal(template.contenido.includes("\uFFFD"), false);
 });
 
 test("normaliza pedidos y exige producto", () => {

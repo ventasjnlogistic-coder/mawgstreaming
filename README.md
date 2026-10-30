@@ -243,6 +243,17 @@ Notas:
 
 La app sirve HTML, CSS y JavaScript con compresion `gzip` cuando el navegador lo solicita. Los assets publicos usan cache, mientras que el HTML y `admin.js` evitan cache agresiva para no mostrar informacion antigua del panel.
 
+### Monitoreo del servidor
+
+- `GET /api/health/live` confirma que el proceso responde, sin consultar almacenamiento.
+- `GET /api/health/ready` comprueba que el catalogo activo responde; devuelve `503` si no esta listo.
+- `GET /api/health/metrics` requiere una sesion admin y muestra contadores agregados de solicitudes, errores `5xx`, solicitudes lentas, cancelaciones y rangos de latencia.
+- Se devuelve un `X-Request-Id` por solicitud. Los errores `5xx` y las solicitudes lentas generan logs JSON con ese ID, metodo, estado y duracion; no se registran rutas, parametros ni datos del cliente.
+
+Los contadores viven en memoria por instancia y se reinician al desplegar o reciclar una instancia. En Cloudflare Workers son locales a cada instancia, no un agregado global. Para conservar historicos o agregar instancias, conecta estos logs JSON a un servicio de observabilidad externo. El umbral de solicitud lenta es de 1000 ms por defecto y se puede ajustar con `SLOW_REQUEST_THRESHOLD_MS`.
+
+Las rutas de catálogo público y administración de productos están agrupadas en `src/http/productRouter.js`; las rutas de salud y monitoreo están en `src/http/healthRouter.js`. `server.js` sigue siendo el composition root: crea las dependencias de almacenamiento, negocio y permisos, y las inyecta a los routers.
+
 Para revisar pesos antes de publicar:
 
 ```bash
@@ -428,6 +439,8 @@ npm start
 - `Renovaciones`: historial de pagos recurrentes, cuentas por vencer, comprobantes y confirmacion de nueva vigencia.
 - `Configuracion`: mantenimiento de contacto de ventas, contacto de soporte y horario publicado en la tienda.
 - `Exportar`: vista previa y respaldo JSON para desarrollo/local.
+
+La plantilla predeterminada de alerta de renovacion usa emojis Unicode. Los valores predeterminados no reemplazan una plantilla ya guardada en Google Sheets: para actualizar la activa, edita y guarda `renovacion` en Admin > Plantillas, o despliega el Apps Script actualizado y ejecuta `actualizarPlantillaAlertaRenovacion()` para aplicar el valor predeterminado a esa fila.
 
 ## Troubleshooting Apps Script
 
